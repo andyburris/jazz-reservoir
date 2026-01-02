@@ -1,10 +1,25 @@
 import { CoValueUniqueness } from "cojson";
-import { ComputedCoMap } from "../../../coValues/calculatedCoMap.js";
-import { Account, CoMap, Group } from "../../../internal.js";
-import { CoMapSchemaInit } from "../typeConverters/CoFieldSchemaInit.js";
+import { ComputedCoMap } from "../../../coValues/computedCoMap.js";
+import {
+  Account,
+  CoMapSchemaInit,
+  DiscriminableCoreCoValueSchema,
+  Group,
+  hydrateCoreCoValueSchema,
+  Resolved,
+  Simplify,
+  withSchemaPermissions,
+} from "../../../internal.js";
 import { z } from "../zodReExport.js";
 import { AnyZodOrCoValueSchema } from "../zodSchema";
-import { CoMapInstanceShape, CoMapSchema } from "./CoMapSchema";
+import {
+  CoMapInstanceCoValuesMaybeLoaded,
+  CoMapInstanceShape,
+  CoMapSchema,
+  CoMapSchemaDefinition,
+  CoreCoMapSchema,
+  createCoreCoMapSchema,
+} from "./CoMapSchema";
 import { CoreResolveQuery } from "./CoValueSchema";
 
 export class ComputedCoMapSchema<
@@ -13,6 +28,22 @@ export class ComputedCoMapSchema<
   Owner extends Account | Group = Account | Group,
   DefaultResolveQuery extends CoreResolveQuery = true,
 > extends CoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery> {
+  private _coValueClass: typeof ComputedCoMap;
+  _computation!: (
+    self: Resolved<
+      Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & ComputedCoMap,
+      true
+    >,
+  ) => { stopListening: () => void };
+
+  constructor(
+    coreSchema: CoreCoMapSchema<Shape, CatchAll>,
+    coValueClass: typeof ComputedCoMap,
+  ) {
+    super(coreSchema, coValueClass);
+    this._coValueClass = coValueClass;
+  }
+
   create(
     init: CoMapSchemaInit<Shape>,
     options?:
@@ -21,7 +52,7 @@ export class ComputedCoMapSchema<
           unique?: CoValueUniqueness["uniqueness"];
         }
       | Group,
-  ): CoMapInstanceShape<Shape, CatchAll> & CoMap;
+  ): CoMapInstanceShape<Shape, CatchAll> & ComputedCoMap;
   /** @deprecated Creating CoValues with an Account as owner is deprecated. Use a Group instead. */
   create(
     init: CoMapSchemaInit<Shape>,
@@ -31,10 +62,29 @@ export class ComputedCoMapSchema<
           unique?: CoValueUniqueness["uniqueness"];
         }
       | Owner,
-  ): CoMapInstanceShape<Shape, CatchAll> & CoMap;
+  ): CoMapInstanceShape<Shape, CatchAll> & ComputedCoMap;
   create(init: any, options?: any) {
-    return super.create(init, options);
+    const optionsWithPermissions = withSchemaPermissions(
+      options,
+      this.permissions,
+    );
+    return this._coValueClass.createComputed(
+      init,
+      this._computation as any,
+      optionsWithPermissions,
+    );
   }
+}
+
+// less precise version to avoid circularity issues and allow matching against
+export interface CoreComputedCoMapSchema<
+  Shape extends z.core.$ZodLooseShape = z.core.$ZodLooseShape,
+  CatchAll extends AnyZodOrCoValueSchema | unknown = unknown,
+> extends DiscriminableCoreCoValueSchema {
+  builtin: "ComputedCoMap";
+  shape: Shape;
+  catchAll?: CatchAll;
+  getDefinition: () => CoMapSchemaDefinition;
 }
 
 export function withComputationForSchema<
@@ -44,26 +94,25 @@ export function withComputationForSchema<
   DefaultResolveQuery extends CoreResolveQuery,
 >(
   baseSchema: CoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery>,
-  computation: (self: CoMapInstanceShape<Shape, CatchAll> & ComputedCoMap) => {
+  computation: (
+    self: Resolved<
+      Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & ComputedCoMap,
+      true
+    >,
+  ) => {
     stopListening: () => void;
   },
 ): ComputedCoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery> {
-  const coreSchema = {
-    builtin: "CoMap" as const,
-    collaborative: true as const,
-    shape: baseSchema.shape,
-    catchAll: baseSchema.catchAll,
-    getDefinition: baseSchema.getDefinition,
-  };
+  const coreSchema = createCoreCoMapSchema(
+    baseSchema.shape,
+    baseSchema.catchAll,
+  );
+  const copy: ComputedCoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery> =
+    hydrateCoreCoValueSchema({ ...coreSchema, builtin: "ComputedCoMap" });
 
-  const computedSchema = new ComputedCoMapSchema(
-    coreSchema as any,
-    ComputedCoMap as typeof CoMap,
-  ) as ComputedCoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery>;
+  copy.resolveQuery = baseSchema.resolveQuery;
+  copy.permissions = baseSchema.permissions;
+  copy._computation = computation;
 
-  (computedSchema as any).resolveQuery = (baseSchema as any).resolveQuery;
-  (computedSchema as any).permissions = (baseSchema as any).permissions;
-  (computedSchema as any)._computation = computation;
-
-  return computedSchema;
+  return copy;
 }

@@ -2,7 +2,12 @@ import { CoValueUniqueness, RawCoMap } from "cojson";
 import { Account, BranchDefinition, Group, Simplify } from "../internal";
 import { CoMap, CoMapInit_DEPRECATED, CoMapJazzApi } from "./coMap";
 import { RefsToResolve, RefsToResolveStrict, Resolved } from "./deepLoading";
-import { SubscribeRestArgs, parseSubscribeRestArgs } from "./interfaces";
+import {
+  CoValueClass,
+  SubscribeRestArgs,
+  parseCoValueCreateOptions,
+  parseSubscribeRestArgs,
+} from "./interfaces";
 
 export class ComputedCoMap extends CoMap {
   declare $jazz: ComputedCoMapJazzApi<this>;
@@ -28,9 +33,10 @@ export class ComputedCoMap extends CoMap {
   }
 
   /** @internal */
-  static _createCoMap<M extends CoMap>(
+  static _createComputedCoMap<M extends ComputedCoMap>(
     instance: M,
     init: Simplify<CoMapInit_DEPRECATED<M>>,
+    computation: (coMap: M) => { stopListening: () => void },
     options?:
       | {
           owner?: Account | Group;
@@ -39,23 +45,67 @@ export class ComputedCoMap extends CoMap {
       | Account
       | Group,
   ): M {
-    const created = CoMap._createCoMap(instance, init, options) as M;
-    const raw = (created.$jazz as CoMapJazzApi<M>).raw;
+    const { owner, uniqueness } = parseCoValueCreateOptions(options);
 
-    if (created instanceof ComputedCoMap) {
-      Object.defineProperties(created, {
-        $jazz: {
-          value: new ComputedCoMapJazzApi(
-            created,
-            () => raw,
-            () => created.$computation,
-          ),
-          enumerable: false,
-        },
-      });
-    }
+    Object.defineProperties(instance, {
+      $jazz: {
+        value: new ComputedCoMapJazzApi(
+          instance,
+          () => raw,
+          () => instance.$computation,
+        ),
+        enumerable: false,
+      },
+      $computation: {
+        value: new ComputedCoValueComputation<M>(computation),
+      },
+    });
 
-    return created;
+    const raw = CoMap.rawFromInit(instance, init, owner, uniqueness);
+
+    return instance;
+  }
+
+  /**
+   * Create a new CoMap with the given initial values and owner.
+   *
+   * The owner (a Group or Account) determines access rights to the CoMap.
+   *
+   * The CoMap will immediately be persisted and synced to connected peers.
+   *
+   * @example
+   * ```ts
+   * const person = Person.create({
+   *   name: "Alice",
+   *   age: 42,
+   *   pet: cat,
+   * }, { owner: friendGroup });
+   * ```
+   *
+   * @category Creation
+   *
+   * @deprecated Use `co.map(...).create`.
+   **/
+  static createComputed<M extends ComputedCoMap>(
+    this: CoValueClass<M>,
+    init: Simplify<CoMapInit_DEPRECATED<M>>,
+    computation: (coMap: M) => { stopListening: () => void },
+    options?:
+      | {
+          owner?: Account | Group;
+          unique?: CoValueUniqueness["uniqueness"];
+        }
+      | Account
+      | Group,
+  ) {
+    const instance = new this();
+
+    return ComputedCoMap._createComputedCoMap(
+      instance,
+      init,
+      computation,
+      options,
+    );
   }
 }
 
@@ -78,6 +128,12 @@ export class ComputedCoValueComputation<M extends ComputedCoMap> {
   }
 
   removeSubscriber(): void {
+    console.log(
+      "removeSubscriber called, this.subscriberCount =",
+      this.subscriberCount,
+      "this.currentComputation is running =",
+      !!this.currentComputation,
+    );
     if (this.subscriberCount === 0) return;
     this.subscriberCount--;
     if (this.subscriberCount === 0 && this.currentComputation) {

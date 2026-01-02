@@ -50,6 +50,7 @@ import { InstanceOfSchemaCoValuesMaybeLoaded } from "./typeConverters/InstanceOf
 import { z } from "./zodReExport.js";
 import { CoreGroupSchema } from "./schemaTypes/GroupSchema.js";
 import { GroupSchema } from "./schemaTypes/GroupSchema.js";
+import { CoreComputedCoMapSchema } from "./schemaTypes/ComputedCoMapSchema.js";
 
 export type ZodPrimitiveSchema =
   | z.core.$ZodString
@@ -104,6 +105,7 @@ type AccountClassEssentials = {
 
 export type AnyCoreCoValueSchema =
   | CoreCoMapSchema
+  | CoreComputedCoMapSchema
   | CoreAccountSchema
   | CoreGroupSchema
   | CoreCoRecordSchema

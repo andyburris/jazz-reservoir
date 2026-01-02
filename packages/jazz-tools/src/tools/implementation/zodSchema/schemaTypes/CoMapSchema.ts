@@ -1,5 +1,5 @@
 import { CoValueUniqueness } from "cojson";
-import { ComputedCoMap } from "../../../coValues/calculatedCoMap.js";
+import { ComputedCoMap } from "../../../coValues/computedCoMap.js";
 import {
   Account,
   BranchDefinition,
@@ -374,10 +374,13 @@ export class CoMapSchema<
 
   withComputation(
     computation: (
-      self: CoMapInstanceShape<Shape, CatchAll> & ComputedCoMap,
+      self: Resolved<
+        Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & ComputedCoMap,
+        true
+      >,
     ) => { stopListening: () => void },
   ): ComputedCoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery> {
-    return withComputationForSchema(this, computation as any);
+    return withComputationForSchema(this, computation);
   }
 
   /**

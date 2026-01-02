@@ -38,6 +38,8 @@ import {
   SchemaField,
   schemaFieldToCoFieldDef,
 } from "./schemaFieldToCoFieldDef.js";
+import { ComputedCoMap } from "../../../coValues/computedCoMap.js";
+import { ComputedCoMapSchema } from "../schemaTypes/ComputedCoMapSchema.js";
 
 // Note: if you're editing this function, edit the `isAnyCoValueSchema`
 // function in `zodReExport.ts` as well
@@ -76,9 +78,18 @@ export function hydrateCoreCoValueSchema<S extends AnyCoreCoValueSchema>(
     throw new Error(
       `co.optional() of collaborative types is not supported as top-level schema: ${JSON.stringify(schema)}`,
     );
-  } else if (schema.builtin === "CoMap" || schema.builtin === "Account") {
+  } else if (
+    schema.builtin === "CoMap" ||
+    schema.builtin === "Account" ||
+    schema.builtin === "ComputedCoMap"
+  ) {
     const def = schema.getDefinition();
-    const ClassToExtend = schema.builtin === "Account" ? Account : CoMap;
+    const ClassToExtend =
+      schema.builtin === "Account"
+        ? Account
+        : schema.builtin === "ComputedCoMap"
+          ? ComputedCoMap
+          : CoMap;
 
     const coValueClass = class ZCoMap extends ClassToExtend {
       constructor(options: { fromRaw: RawCoMap } | undefined) {
@@ -99,7 +110,9 @@ export function hydrateCoreCoValueSchema<S extends AnyCoreCoValueSchema>(
     const coValueSchema =
       ClassToExtend === Account
         ? new AccountSchema(schema as any, coValueClass as any)
-        : new CoMapSchema(schema as any, coValueClass as any);
+        : ClassToExtend === ComputedCoMap
+          ? new ComputedCoMapSchema(schema as any, coValueClass as any)
+          : new CoMapSchema(schema as any, coValueClass as any);
 
     return coValueSchema as unknown as CoValueSchemaFromCoreSchema<S>;
   } else if (schema.builtin === "CoList") {

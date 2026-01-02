@@ -1,5 +1,6 @@
 export { Loaded as loaded } from "./zodSchema.js";
 export { Loaded as output } from "./zodSchema.js";
+export { ComputedCoMapSchema as ComputedMap } from "./schemaTypes/ComputedCoMapSchema.js";
 export { CoMapSchema as Map } from "./schemaTypes/CoMapSchema.js";
 export { CoRecordSchema as Record } from "./schemaTypes/CoRecordSchema.js";
 export { CoListSchema as List } from "./schemaTypes/CoListSchema.js";
@@ -16,7 +17,6 @@ export {
 export { GroupSchema as Group } from "./schemaTypes/GroupSchema.js";
 export { CoOptionalSchema as Optional } from "./schemaTypes/CoOptionalSchema.js";
 export { CoDiscriminatedUnionSchema as DiscriminatedUnion } from "./schemaTypes/CoDiscriminatedUnionSchema.js";
-export { ComputedCoMapSchema as ComputedMap } from "./schemaTypes/ComputedCoMapSchema.js";
 export {
   coMapDefiner as map,
   coRecordDefiner as record,
