@@ -561,7 +561,7 @@ export class CoMap extends CoValueBase implements CoValue {
 /**
  * Contains CoMap Jazz methods that are part of the {@link CoMap.$jazz`} property.
  */
-class CoMapJazzApi<M extends CoMap> extends CoValueJazzApi<M> {
+export class CoMapJazzApi<M extends CoMap> extends CoValueJazzApi<M> {
   constructor(
     private coMap: M,
     private getRaw: () => RawCoMap,

@@ -16,6 +16,7 @@ export {
 export { GroupSchema as Group } from "./schemaTypes/GroupSchema.js";
 export { CoOptionalSchema as Optional } from "./schemaTypes/CoOptionalSchema.js";
 export { CoDiscriminatedUnionSchema as DiscriminatedUnion } from "./schemaTypes/CoDiscriminatedUnionSchema.js";
+export { ComputedCoMapSchema as ComputedMap } from "./schemaTypes/ComputedCoMapSchema.js";
 export {
   coMapDefiner as map,
   coRecordDefiner as record,

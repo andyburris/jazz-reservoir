@@ -1,4 +1,5 @@
 import { CoValueUniqueness } from "cojson";
+import { ComputedCoMap } from "../../../coValues/calculatedCoMap.js";
 import {
   Account,
   BranchDefinition,
@@ -6,10 +7,10 @@ import {
   DiscriminableCoValueSchemaDefinition,
   DiscriminableCoreCoValueSchema,
   Group,
-  Settled,
   RefsToResolve,
   RefsToResolveStrict,
   Resolved,
+  Settled,
   Simplify,
   SubscribeListenerOptions,
   coMapDefiner,
@@ -21,6 +22,10 @@ import {
 } from "../../../internal.js";
 import { AnonymousJazzAgent } from "../../anonymousJazzAgent.js";
 import { removeGetters, withSchemaResolveQuery } from "../../schemaUtils.js";
+import {
+  DEFAULT_SCHEMA_PERMISSIONS,
+  SchemaPermissions,
+} from "../schemaPermissions.js";
 import { CoMapSchemaInit } from "../typeConverters/CoFieldSchemaInit.js";
 import { InstanceOrPrimitiveOfSchema } from "../typeConverters/InstanceOrPrimitiveOfSchema.js";
 import { InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded } from "../typeConverters/InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded.js";
@@ -29,9 +34,9 @@ import { AnyZodOrCoValueSchema, AnyZodSchema } from "../zodSchema.js";
 import { CoOptionalSchema } from "./CoOptionalSchema.js";
 import { CoreCoValueSchema, CoreResolveQuery } from "./CoValueSchema.js";
 import {
-  DEFAULT_SCHEMA_PERMISSIONS,
-  SchemaPermissions,
-} from "../schemaPermissions.js";
+  ComputedCoMapSchema,
+  withComputationForSchema,
+} from "./ComputedCoMapSchema.js";
 
 export class CoMapSchema<
   Shape extends z.core.$ZodLooseShape,
@@ -365,6 +370,14 @@ export class CoMapSchema<
     permissions: SchemaPermissions,
   ): CoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery> {
     return this.copy({ permissions });
+  }
+
+  withComputation(
+    computation: (
+      self: CoMapInstanceShape<Shape, CatchAll> & ComputedCoMap,
+    ) => { stopListening: () => void },
+  ): ComputedCoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery> {
+    return withComputationForSchema(this, computation as any);
   }
 
   /**
