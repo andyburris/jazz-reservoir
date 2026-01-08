@@ -114,6 +114,11 @@ export function hydrateCoreCoValueSchema<S extends AnyCoreCoValueSchema>(
           ? new ComputedCoMapSchema(schema as any, coValueClass as any)
           : new CoMapSchema(schema as any, coValueClass as any);
 
+    // Attach the schema to the class for ComputedCoMap so we can access _computation later
+    if (ClassToExtend === ComputedCoMap) {
+      (coValueClass as any)._computedCoMapSchema = coValueSchema;
+    }
+
     return coValueSchema as unknown as CoValueSchemaFromCoreSchema<S>;
   } else if (schema.builtin === "CoList") {
     const element = schema.element;

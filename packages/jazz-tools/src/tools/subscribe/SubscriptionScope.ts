@@ -1,4 +1,6 @@
 import { LocalNode, RawCoValue } from "cojson";
+import { ComputedCoMap } from "../coValues/computedCoMap.js";
+import { COMPUTATION_CACHE } from "./ComputedCoValueComputationCache.js";
 import {
   CoFeed,
   CoList,
@@ -524,6 +526,19 @@ export class SubscriptionScope<D extends CoValue> {
       this.subscribers.forEach((listener) => listener(error));
     } else if (value.type !== CoValueLoadingState.LOADING) {
       this.subscribers.forEach((listener) => listener(value));
+
+      // TODO: is this the right place for this?
+      if (
+        this.value.type === CoValueLoadingState.LOADED &&
+        this.subscribers.size > 0 &&
+        Object.getPrototypeOf(this.value.value).isComputed
+      ) {
+        // console.log("triggerUpdate - starting computation for", this.value.value.$jazz.id, "current listener count =", this.subscribers.size);
+        COMPUTATION_CACHE.startComputation(
+          this as unknown as SubscriptionScope<ComputedCoMap>,
+          this.value.value as ComputedCoMap,
+        );
+      }
     }
 
     this.dirty = false;
@@ -970,6 +985,16 @@ export class SubscriptionScope<D extends CoValue> {
     // Notify callbacks that subscriber count is now 0 if there were subscribers before
     if (hadSubscribers) {
       this.notifySubscriberChange();
+    }
+
+    if (
+      this.value.type === CoValueLoadingState.LOADED &&
+      Object.getPrototypeOf(this.value.value).isComputed
+    ) {
+      COMPUTATION_CACHE.removeComputationSubscription(
+        this as unknown as SubscriptionScope<ComputedCoMap>,
+        this.value.value as ComputedCoMap,
+      );
     }
     // Clear subscriber change callbacks to prevent memory leaks
     this.subscriberChangeCallbacks.clear();
