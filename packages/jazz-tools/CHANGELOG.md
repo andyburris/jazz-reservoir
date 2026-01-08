@@ -1,5 +1,33 @@
 # jazz-tools
 
+## 0.19.18
+
+### Patch Changes
+
+- 729d46c: Fixed Clerk types schema to use `.or()` method consistently for union types
+  - cojson@0.19.18
+  - cojson-storage-indexeddb@0.19.18
+  - cojson-transport-ws@0.19.18
+
+## 0.19.17
+
+### Patch Changes
+
+- d46cffd: Bugfix: fixed an issue where calling logOut multiple times concurrently could trigger duplicate logout operations
+  - cojson@0.19.17
+  - cojson-storage-indexeddb@0.19.17
+  - cojson-transport-ws@0.19.17
+
+## 0.19.16
+
+### Patch Changes
+
+- 25268bf: Bugfix: fixed a race condition in Clerk auth where the signup flow could trigger a duplicate login attempt
+- Updated dependencies [265d0e9]
+  - cojson@0.19.16
+  - cojson-storage-indexeddb@0.19.16
+  - cojson-transport-ws@0.19.16
+
 ## 0.19.15
 
 ### Patch Changes
