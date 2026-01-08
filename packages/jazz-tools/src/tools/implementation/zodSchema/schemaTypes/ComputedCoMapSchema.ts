@@ -28,52 +28,12 @@ export class ComputedCoMapSchema<
   Owner extends Account | Group = Account | Group,
   DefaultResolveQuery extends CoreResolveQuery = true,
 > extends CoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery> {
-  private _coValueClass: typeof ComputedCoMap;
   _computation!: (
     self: Resolved<
       Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & ComputedCoMap,
       true
     >,
   ) => { stopListening: () => void };
-
-  constructor(
-    coreSchema: CoreCoMapSchema<Shape, CatchAll>,
-    coValueClass: typeof ComputedCoMap,
-  ) {
-    super(coreSchema, coValueClass);
-    this._coValueClass = coValueClass;
-  }
-
-  create(
-    init: CoMapSchemaInit<Shape>,
-    options?:
-      | {
-          owner?: Group;
-          unique?: CoValueUniqueness["uniqueness"];
-        }
-      | Group,
-  ): CoMapInstanceShape<Shape, CatchAll> & ComputedCoMap;
-  /** @deprecated Creating CoValues with an Account as owner is deprecated. Use a Group instead. */
-  create(
-    init: CoMapSchemaInit<Shape>,
-    options?:
-      | {
-          owner?: Owner;
-          unique?: CoValueUniqueness["uniqueness"];
-        }
-      | Owner,
-  ): CoMapInstanceShape<Shape, CatchAll> & ComputedCoMap;
-  create(init: any, options?: any) {
-    const optionsWithPermissions = withSchemaPermissions(
-      options,
-      this.permissions,
-    );
-    return this._coValueClass.createComputed(
-      init,
-      this._computation as any,
-      optionsWithPermissions,
-    );
-  }
 }
 
 // less precise version to avoid circularity issues and allow matching against
