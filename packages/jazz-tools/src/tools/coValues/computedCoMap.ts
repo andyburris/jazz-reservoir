@@ -28,7 +28,6 @@ export class ComputedCoMap<
   public get $isComputed(): boolean {
     // $isComputed is true when all of the properties in the computed shape have been set
     // more recently than any property in the base shape (including edits to loaded child CoValues)
-    const edits = this.$jazz.getEdits();
 
     // Access the ComputedCoMapSchema to get shape information
     const schema = (this.constructor as any)._computedCoMapSchema;
@@ -46,45 +45,47 @@ export class ComputedCoMap<
     const getLatestEditRecursive = (
       coValue: any,
       visitedSet: Set<string>,
-    ): Date | null => {
+    ): number | null => {
       if (!coValue?.$jazz?.id) return null;
 
       // Prevent infinite recursion
       if (visitedSet.has(coValue.$jazz.id)) return null;
       visitedSet.add(coValue.$jazz.id);
 
-      const edits = coValue.$jazz.getEdits();
-      let latestEdit: Date | null = null;
+      let latestEditIndex: number | null = null;
 
       // Check all properties of this CoValue
-      for (const key of Object.keys(edits)) {
-        const edit = edits[key];
-        if (edit?.madeAt) {
-          if (!latestEdit || edit.madeAt > latestEdit) {
-            latestEdit = edit.madeAt;
+      for (const key of Object.keys(coValue)) {
+        const edit = coValue.$jazz.raw.lastEditAt(key as string);
+        if (edit?.tx.txIndex) {
+          if (!latestEditIndex || edit.tx.txIndex > latestEditIndex) {
+            latestEditIndex = edit.tx.txIndex;
           }
 
           // If this property is a loaded CoValue, check its edits recursively
           const value = coValue[key];
           if (value?.$jazz?.id && typeof value === "object") {
             const childLatest = getLatestEditRecursive(value, visitedSet);
-            if (childLatest && (!latestEdit || childLatest > latestEdit)) {
-              latestEdit = childLatest;
+            if (
+              childLatest &&
+              (!latestEditIndex || childLatest > latestEditIndex)
+            ) {
+              latestEditIndex = childLatest;
             }
           }
         }
       }
 
-      return latestEdit;
+      return latestEditIndex;
     };
 
     // Find the most recent edit time in the base shape (including children)
-    let latestBaseEdit: Date | null = null;
+    let latestBaseEditIndex: number | null = null;
     for (const key of baseKeys) {
-      const edit = edits[key as keyof typeof edits];
-      if (edit?.madeAt) {
-        if (!latestBaseEdit || edit.madeAt > latestBaseEdit) {
-          latestBaseEdit = edit.madeAt;
+      const edit = this.$jazz.raw.lastEditAt(key as string);
+      if (edit?.tx.txIndex) {
+        if (!latestBaseEditIndex || edit.tx.txIndex > latestBaseEditIndex) {
+          latestBaseEditIndex = edit.tx.txIndex;
         }
       }
 
@@ -93,20 +94,23 @@ export class ComputedCoMap<
       // console.log(`checking edits for this.${key} =`, value)
       if (value?.$jazz?.id && typeof value === "object") {
         const childLatest = getLatestEditRecursive(value, new Set(visited));
-        if (childLatest && (!latestBaseEdit || childLatest > latestBaseEdit)) {
-          latestBaseEdit = childLatest;
+        if (
+          childLatest &&
+          (!latestBaseEditIndex || childLatest > latestBaseEditIndex)
+        ) {
+          latestBaseEditIndex = childLatest;
         }
       }
     }
 
     // Check if all computed properties exist and were set after the latest base edit
     for (const key of computedKeys) {
-      const edit = edits[key as keyof typeof edits];
-      if (!edit?.madeAt) {
+      const edit = this.$jazz.raw.lastEditAt(key as string);
+      if (!edit?.tx) {
         // Computed property hasn't been set yet
         return false;
       }
-      if (latestBaseEdit && edit.madeAt <= latestBaseEdit) {
+      if (latestBaseEditIndex && edit.tx.txIndex <= latestBaseEditIndex) {
         // Computed property is stale
         return false;
       }
