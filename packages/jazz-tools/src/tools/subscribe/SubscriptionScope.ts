@@ -531,7 +531,7 @@ export class SubscriptionScope<D extends CoValue> {
       if (
         this.value.type === CoValueLoadingState.LOADED &&
         this.subscribers.size > 0 &&
-        Object.getPrototypeOf(this.value.value).isComputed
+        Object.getPrototypeOf(this.value.value.$jazz).isComputed
       ) {
         // console.log("triggerUpdate - starting computation for", this.value.value.$jazz.id, "current listener count =", this.subscribers.size);
         COMPUTATION_CACHE.startComputation(
@@ -989,7 +989,7 @@ export class SubscriptionScope<D extends CoValue> {
 
     if (
       this.value.type === CoValueLoadingState.LOADED &&
-      Object.getPrototypeOf(this.value.value).isComputed
+      Object.getPrototypeOf(this.value.value.$jazz).isComputed
     ) {
       COMPUTATION_CACHE.removeComputationSubscription(
         this as unknown as SubscriptionScope<ComputedCoMap<any, any>>,

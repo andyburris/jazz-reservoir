@@ -19,12 +19,6 @@ export class ComputedCoMap<
 > extends CoMap {
   declare $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, this>;
 
-  // TODO: move this inside $jazz
-  declare isComputed: true;
-  static {
-    this.prototype["isComputed"] = true;
-  }
-
   public get $isComputed(): boolean {
     // $isComputed is true when all of the properties in the computed shape have been set
     // more recently than any property in the base shape (including edits to loaded child CoValues)
@@ -149,6 +143,11 @@ export class ComputedCoMapJazzApi<
   ComputedShape extends z.core.$ZodLooseShape,
   M extends ComputedCoMap<Shape, ComputedShape>,
 > extends CoMapJazzApi<M> {
+  declare isComputed: true;
+  static {
+    this.prototype["isComputed"] = true;
+  }
+
   /**
    * Given an already loaded `CoMap`, subscribe to updates to the `CoMap` and ensure that the specified fields are loaded to the specified depth.
    *
