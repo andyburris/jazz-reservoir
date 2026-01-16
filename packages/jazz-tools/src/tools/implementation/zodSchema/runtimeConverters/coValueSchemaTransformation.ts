@@ -99,6 +99,18 @@ export function hydrateCoreCoValueSchema<S extends AnyCoreCoValueSchema>(
             fieldType as SchemaField,
           );
         }
+        // Add computed fields (as optional) for ComputedCoMap
+        if (schema.builtin === "ComputedCoMap" && "computedShape" in schema) {
+          for (const [fieldName, fieldType] of Object.entries(
+            schema.computedShape,
+          )) {
+            (this as any)[fieldName] = schemaFieldToCoFieldDef(
+              fieldType as SchemaField,
+            );
+          }
+          // Add $isComputed field as a boolean literal field
+          (this as any)["$isComputed"] = coField.boolean;
+        }
         if (def.catchall) {
           (this as any)[coField.items] = schemaFieldToCoFieldDef(
             def.catchall as SchemaField,

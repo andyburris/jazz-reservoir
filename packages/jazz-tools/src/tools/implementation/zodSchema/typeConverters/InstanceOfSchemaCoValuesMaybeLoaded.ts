@@ -27,6 +27,11 @@ import { CoreRichTextSchema } from "../schemaTypes/RichTextSchema.js";
 import { CoreGroupSchema } from "../schemaTypes/GroupSchema.js";
 import { z } from "../zodReExport.js";
 import { InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded } from "./InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded.js";
+import {
+  ComputedCoMapInstanceCoValuesMaybeLoaded,
+  CoreComputedCoMapSchema,
+} from "../schemaTypes/ComputedCoMapSchema.js";
+import { ComputedCoMap } from "../../../coValues/computedCoMap.js";
 
 /**
  * A loaded CoValue whose references may or may not be loaded.
@@ -51,48 +56,57 @@ export type InstanceOfSchemaCoValuesMaybeLoaded<
                 string]: InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<V>;
             } & CoMap
           >
-        : S extends CoreCoMapSchema<infer Shape, infer CatchAll>
-          ? MaybeLoaded<
-              {
-                readonly [key in keyof Shape]: InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<
-                  Shape[key]
-                >;
-              } & (CatchAll extends AnyZodOrCoValueSchema
-                ? {
-                    readonly [
-                      key: string
-                    ]: InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<CatchAll>;
-                  }
-                : {}) &
-                CoMap
+        : S extends CoreComputedCoMapSchema<
+              infer Shape,
+              infer ComputedShape,
+              infer CatchAll
             >
-          : S extends CoreCoListSchema<infer T>
+          ? MaybeLoaded<
+              ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape> &
+                ComputedCoMap<Shape, ComputedShape>
+            >
+          : S extends CoreCoMapSchema<infer Shape, infer CatchAll>
             ? MaybeLoaded<
-                CoList<InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<T>>
+                {
+                  readonly [key in keyof Shape]: InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<
+                    Shape[key]
+                  >;
+                } & (CatchAll extends AnyZodOrCoValueSchema
+                  ? {
+                      readonly [
+                        key: string
+                      ]: InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<CatchAll>;
+                    }
+                  : {}) &
+                  CoMap
               >
-            : S extends CoreCoFeedSchema<infer T>
+            : S extends CoreCoListSchema<infer T>
               ? MaybeLoaded<
-                  CoFeed<InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<T>>
+                  CoList<InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<T>>
                 >
-              : S extends CorePlainTextSchema
-                ? MaybeLoaded<CoPlainText>
-                : S extends CoreRichTextSchema
-                  ? MaybeLoaded<CoRichText>
-                  : S extends CoreFileStreamSchema
-                    ? MaybeLoaded<FileStream>
-                    : S extends CoreCoVectorSchema
-                      ? MaybeLoaded<Readonly<CoVector>>
-                      : S extends CoreCoOptionalSchema<infer Inner>
-                        ?
-                            | InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<Inner>
-                            | undefined
-                        : S extends CoreCoDiscriminatedUnionSchema<
-                              infer Members
-                            >
-                          ? InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<
-                              Members[number]
-                            >
-                          : never
+              : S extends CoreCoFeedSchema<infer T>
+                ? MaybeLoaded<
+                    CoFeed<InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<T>>
+                  >
+                : S extends CorePlainTextSchema
+                  ? MaybeLoaded<CoPlainText>
+                  : S extends CoreRichTextSchema
+                    ? MaybeLoaded<CoRichText>
+                    : S extends CoreFileStreamSchema
+                      ? MaybeLoaded<FileStream>
+                      : S extends CoreCoVectorSchema
+                        ? MaybeLoaded<Readonly<CoVector>>
+                        : S extends CoreCoOptionalSchema<infer Inner>
+                          ?
+                              | InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<Inner>
+                              | undefined
+                          : S extends CoreCoDiscriminatedUnionSchema<
+                                infer Members
+                              >
+                            ? InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded<
+                                Members[number]
+                              >
+                            : never
   : S extends CoValueClass
     ? MaybeLoaded<InstanceType<S>>
     : never;

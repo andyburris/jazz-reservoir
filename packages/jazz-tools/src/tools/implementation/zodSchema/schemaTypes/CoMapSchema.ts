@@ -34,6 +34,7 @@ import { AnyZodOrCoValueSchema, AnyZodSchema } from "../zodSchema.js";
 import { CoOptionalSchema } from "./CoOptionalSchema.js";
 import { CoreCoValueSchema, CoreResolveQuery } from "./CoValueSchema.js";
 import {
+  ComputedCoMapInstanceCoValuesMaybeLoaded,
   ComputedCoMapSchema,
   withComputationForSchema,
 } from "./ComputedCoMapSchema.js";
@@ -372,15 +373,25 @@ export class CoMapSchema<
     return this.copy({ permissions });
   }
 
-  withComputation(
+  withComputed<ComputedShape extends z.core.$ZodLooseShape>(
+    computedShape: ComputedShape,
     computation: (
       self: Resolved<
-        Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & ComputedCoMap,
+        Simplify<
+          ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape>
+        > &
+          ComputedCoMap<Shape, ComputedShape>,
         true
       >,
     ) => { stopListening: () => void },
-  ): ComputedCoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery> {
-    return withComputationForSchema(this, computation);
+  ): ComputedCoMapSchema<
+    Shape,
+    ComputedShape,
+    CatchAll,
+    Owner,
+    DefaultResolveQuery
+  > {
+    return withComputationForSchema(this, computedShape, computation);
   }
 
   /**

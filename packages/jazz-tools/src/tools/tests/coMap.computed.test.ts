@@ -1,23 +1,23 @@
 import { PureJSCrypto } from "cojson/dist/crypto/PureJSCrypto";
 import { Account, co, Group, z } from "jazz-tools";
 import { describe, expect, it } from "vitest";
+import { ComputedCoMapInstanceShape } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
 
 const Child = co.map({ text: z.string() });
 const Parent = co
   .map({
     child: Child,
-    wordCount: z.number().optional(),
   })
-  .withComputation((self) => {
+  .withComputed({ wordCount: z.number() }, (self) => {
     const stopListening = self.$jazz.subscribe(
       { resolve: { child: true } },
       (resolved) => {
-        const count = resolved.child.text
-          .trim()
-          .split(/\s+/)
-          .filter((w) => w.length > 0).length;
-        if (!(resolved.wordCount === count)) {
-          resolved.$jazz.set("wordCount", count);
+        if (resolved.$isComputed === false) {
+          const count = resolved.child.text
+            .trim()
+            .split(/\s+/)
+            .filter((w) => w.length > 0).length;
+          resolved.$jazz.finishComputation({ wordCount: count });
         }
       },
     );
@@ -51,7 +51,7 @@ describe("ComputedCoMap wordCount", () => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
 
       const unsubscribe = parent.$jazz.subscribe((value) => {
-        if (value.wordCount != undefined) {
+        if (value.$isComputed && value.wordCount != undefined) {
           clearTimeout(timeout);
           expect(value.wordCount).toBe(2);
           unsubscribe();
@@ -77,19 +77,23 @@ describe("ComputedCoMap wordCount", () => {
       let updatedChildOnce = false;
 
       unsubscribe1 = parent.$jazz.subscribe((value) => {
-        if (value.wordCount === 2 && unsubscribe1) {
+        if (value.$isComputed && value.wordCount === 2 && unsubscribe1) {
           // First subscriber unsubscribes after seeing the initial computation.
           unsubscribe1();
         }
       });
 
       unsubscribe2 = parent.$jazz.subscribe((value) => {
-        if (value.wordCount === 2 && !updatedChildOnce) {
+        if (value.$isComputed && value.wordCount === 2 && !updatedChildOnce) {
           // After second subscriber has seen the first computed value,
           // update child.text to trigger another computation.
           updatedChildOnce = true;
           parent.child.$jazz.set("text", "one two three four");
-        } else if (value.wordCount === 4 && updatedChildOnce) {
+        } else if (
+          value.$isComputed &&
+          value.wordCount === 4 &&
+          updatedChildOnce
+        ) {
           clearTimeout(timeout);
           expect(value.wordCount).toBe(4);
           unsubscribe2();
@@ -113,7 +117,7 @@ describe("ComputedCoMap wordCount", () => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
 
       const unsubscribe = parent.$jazz.subscribe((value) => {
-        if (value.wordCount != undefined) {
+        if (value.$isComputed === true && value.wordCount != undefined) {
           clearTimeout(timeout);
           expect(value.wordCount).toBe(2);
           unsubscribe();
@@ -127,7 +131,7 @@ describe("ComputedCoMap wordCount", () => {
     // Wait a moment to see if computation runs again (it should not).
     await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(parent.wordCount).toBe(2); // should not have updated
+    assertIsUncomputed(parent);
   });
 
   it("runs computation when nested in a subscribed CoMap", async () => {
@@ -146,7 +150,10 @@ describe("ComputedCoMap wordCount", () => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
 
       const unsubscribe = grandparent.$jazz.subscribe((value) => {
-        if (value.parent.wordCount != undefined) {
+        if (
+          value.parent.$isComputed === true &&
+          value.parent.wordCount != undefined
+        ) {
           clearTimeout(timeout);
           expect(value.parent.wordCount).toBe(3);
           unsubscribe();
@@ -156,3 +163,19 @@ describe("ComputedCoMap wordCount", () => {
     });
   });
 });
+
+function assertIsComputed<
+  Shape extends z.z.core.$ZodLooseShape,
+  ComputedShape extends z.z.core.$ZodLooseShape,
+  V extends ComputedCoMapInstanceShape<Shape, ComputedShape>,
+>(value: V): asserts value is V & { $isComputed: true } {
+  expect(value.$isComputed).toBe(true);
+}
+
+function assertIsUncomputed<
+  Shape extends z.z.core.$ZodLooseShape,
+  ComputedShape extends z.z.core.$ZodLooseShape,
+  V extends ComputedCoMapInstanceShape<Shape, ComputedShape>,
+>(value: V): asserts value is V & { $isComputed: false } {
+  expect(value.$isComputed).toBe(false);
+}

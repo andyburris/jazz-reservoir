@@ -9,6 +9,7 @@ import {
   CorePlainTextSchema,
   Simplify,
 } from "../../../internal.js";
+import { CoreComputedCoMapSchema } from "../schemaTypes/ComputedCoMapSchema.js";
 import { CoreCoOptionalSchema } from "../schemaTypes/CoOptionalSchema.js";
 import { CoreCoValueSchema } from "../schemaTypes/CoValueSchema.js";
 import { CoreRichTextSchema } from "../schemaTypes/RichTextSchema.js";
@@ -28,21 +29,26 @@ export type CoFieldSchemaInit<S extends CoValueClass | AnyZodOrCoValueSchema> =
         | Loaded<S>
         | (S extends CoreCoRecordSchema<infer K, infer V>
             ? CoMapSchemaInit<{ [key in z.output<K> & string]: V }>
-            : S extends CoreCoMapSchema<infer Shape>
+            : S extends CoreComputedCoMapSchema<
+                  infer Shape,
+                  infer ComputedShape
+                >
               ? CoMapSchemaInit<Shape>
-              : S extends CoreCoListSchema<infer T>
-                ? CoListSchemaInit<T>
-                : S extends CoreCoFeedSchema<infer T>
-                  ? CoFeedSchemaInit<T>
-                  : S extends CoreCoVectorSchema
-                    ? CoVectorSchemaInit
-                    : S extends CorePlainTextSchema | CoreRichTextSchema
-                      ? string
-                      : S extends CoreCoOptionalSchema<infer T>
-                        ? CoFieldSchemaInit<T> | undefined
-                        : S extends CoDiscriminatedUnionSchema<infer Members>
-                          ? CoFieldSchemaInit<Members[number]>
-                          : never)
+              : S extends CoreCoMapSchema<infer Shape>
+                ? CoMapSchemaInit<Shape>
+                : S extends CoreCoListSchema<infer T>
+                  ? CoListSchemaInit<T>
+                  : S extends CoreCoFeedSchema<infer T>
+                    ? CoFeedSchemaInit<T>
+                    : S extends CoreCoVectorSchema
+                      ? CoVectorSchemaInit
+                      : S extends CorePlainTextSchema | CoreRichTextSchema
+                        ? string
+                        : S extends CoreCoOptionalSchema<infer T>
+                          ? CoFieldSchemaInit<T> | undefined
+                          : S extends CoDiscriminatedUnionSchema<infer Members>
+                            ? CoFieldSchemaInit<Members[number]>
+                            : never)
     : S extends z.core.$ZodType
       ? TypeOfZodSchema<S>
       : S extends CoValueClass
