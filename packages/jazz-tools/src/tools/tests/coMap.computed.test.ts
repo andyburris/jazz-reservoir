@@ -51,7 +51,7 @@ describe("ComputedCoMap wordCount", () => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
 
       const unsubscribe = parent.$jazz.subscribe((value) => {
-        if (value.$isComputed && value.wordCount != undefined) {
+        if (value.$isComputed) {
           clearTimeout(timeout);
           expect(value.wordCount).toBe(2);
           unsubscribe();
@@ -117,7 +117,7 @@ describe("ComputedCoMap wordCount", () => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
 
       const unsubscribe = parent.$jazz.subscribe((value) => {
-        if (value.$isComputed === true && value.wordCount != undefined) {
+        if (value.$isComputed) {
           clearTimeout(timeout);
           expect(value.wordCount).toBe(2);
           unsubscribe();
@@ -132,6 +132,8 @@ describe("ComputedCoMap wordCount", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     assertIsUncomputed(parent);
+    // @ts-expect-error property still exists, just is type-hidden
+    expect(parent.wordCount).toBe(2);
   });
 
   it("runs computation when nested in a subscribed CoMap", async () => {
@@ -156,6 +158,69 @@ describe("ComputedCoMap wordCount", () => {
         ) {
           clearTimeout(timeout);
           expect(value.parent.wordCount).toBe(3);
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  });
+
+  it("lastComputedValue returns the uncomputed value when computation has never completed", async () => {
+    const account = await getBasicAccount();
+    const group = Group.create({ owner: account });
+    const parent = Parent.create(
+      { child: { text: "never computed" } },
+      { owner: group },
+    );
+
+    const lastComputed = parent.$jazz.lastComputedValue;
+    assertIsUncomputed(lastComputed);
+    expect(lastComputed.child.text).toBe("never computed");
+  });
+
+  it("lastComputedValue returns the computed value when a computation is completed", async () => {
+    const account = await getBasicAccount();
+    const group = Group.create({ owner: account });
+    const parent = Parent.create(
+      { child: { text: "initial" } },
+      { owner: group },
+    );
+
+    let computedOnce = false;
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
+
+      const unsubscribe = parent.$jazz.subscribe((value) => {
+        if (!value.$isComputed && !computedOnce) {
+          const lastComputed = parent.$jazz.lastComputedValue;
+          assertIsUncomputed(lastComputed);
+
+          expect(parent.child.text).toBe("initial");
+          expect(lastComputed.child.text).toBe("initial");
+        } else if (value.$isComputed && !computedOnce) {
+          const lastComputed = parent.$jazz.lastComputedValue;
+          assertIsComputed(lastComputed);
+          expect(parent.child.text).toBe("initial");
+          expect(lastComputed.child.text).toBe("initial");
+          expect(lastComputed.wordCount).toBe(1);
+
+          computedOnce = true;
+          parent.child.$jazz.set("text", "second time");
+        } else if (!value.$isComputed && computedOnce) {
+          const lastComputed = parent.$jazz.lastComputedValue;
+          assertIsComputed(lastComputed);
+          expect(parent.child.text).toBe("second time");
+          expect(lastComputed.child.text).toBe("initial");
+          expect(lastComputed.wordCount).toBe(1);
+        } else if (value.$isComputed && computedOnce) {
+          const lastComputed = parent.$jazz.lastComputedValue;
+          assertIsComputed(lastComputed);
+          expect(parent.child.text).toBe("second time");
+          expect(lastComputed.child.text).toBe("second time");
+          expect(lastComputed.wordCount).toBe(2);
+
+          clearTimeout(timeout);
           unsubscribe();
           resolve();
         }
