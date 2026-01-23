@@ -1,6 +1,5 @@
 import {
   Account,
-  AccountCreationProps,
   BranchDefinition,
   CoMapSchemaDefinition,
   coOptionalDefiner,
@@ -10,12 +9,12 @@ import {
   RefsToResolve,
   Resolved,
   Simplify,
+  SubscribeCallback,
   SubscribeListenerOptions,
   unstable_mergeBranchWithResolve,
 } from "../../../internal.js";
 import { AnonymousJazzAgent } from "../../anonymousJazzAgent.js";
 import { InstanceOrPrimitiveOfSchema } from "../typeConverters/InstanceOrPrimitiveOfSchema.js";
-import { InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded } from "../typeConverters/InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded.js";
 import { z } from "../zodReExport.js";
 import { AnyZodOrCoValueSchema, Loaded, ResolveQuery } from "../zodSchema.js";
 import {
@@ -94,7 +93,31 @@ export class AccountSchema<
     );
   }
 
-  // Create an account via worker, useful to generate controlled accounts from the server
+  /**
+   * Creates a new account as a worker account, useful for generating controlled accounts from a server environment.
+   * This method initializes a new account, applies migrations, invokes the `onCreate` callback, and then shuts down the temporary node to avoid memory leaks.
+   * Returns the created account (loaded on the worker) and its credentials.
+   *
+   * The method internally calls `waitForAllCoValuesSync` on the new account. If many CoValues are created during `onCreate`,
+   * consider adjusting the timeout using the `waitForSyncTimeout` option.
+   *
+   * @param worker - The worker account to create the new account from
+   * @param options.creationProps - The creation properties for the new account
+   * @param options.onCreate - The callback to use to initialize the account after it is created
+   * @param options.waitForSyncTimeout - The timeout for the sync to complete
+   * @returns The credentials and the created account loaded by the worker account
+   *
+   *
+   * @example
+   * ```ts
+   * const { credentials, account } = await AccountSchema.createAs(worker, {
+   *   creationProps: { name: "My Account" },
+   *   onCreate: async (account, worker, credentials) => {
+   *     account.root.$jazz.owner.addMember(worker, "writer");
+   *   },
+   * });
+   * ```
+   */
   createAs(
     worker: Account,
     options: {
@@ -102,7 +125,9 @@ export class AccountSchema<
       onCreate?: (
         account: AccountInstance<Shape>,
         worker: Account,
+        credentials: { accountID: string; accountSecret: AgentSecret },
       ) => Promise<void>;
+      waitForSyncTimeout?: number;
     },
   ): Promise<{
     credentials: {
@@ -142,17 +167,40 @@ export class AccountSchema<
     > = DefaultResolveQuery,
   >(
     id: string,
+    listener: SubscribeCallback<Resolved<Simplify<AccountInstance<Shape>>, R>>,
+  ): () => void;
+  subscribe<
+    const R extends RefsToResolve<
+      Simplify<AccountInstance<Shape>>
+      // @ts-expect-error we can't statically enforce the schema's resolve query is a valid resolve query, but in practice it is
+    > = DefaultResolveQuery,
+  >(
+    id: string,
     options: SubscribeListenerOptions<Simplify<AccountInstance<Shape>>, R>,
-    listener: (
-      value: Resolved<Simplify<AccountInstance<Shape>>, R>,
-      unsubscribe: () => void,
-    ) => void,
+    listener: SubscribeCallback<Resolved<Simplify<AccountInstance<Shape>>, R>>,
+  ): () => void;
+  subscribe<const R extends RefsToResolve<Simplify<AccountInstance<Shape>>>>(
+    id: string,
+    optionsOrListener:
+      | SubscribeListenerOptions<Simplify<AccountInstance<Shape>>, R>
+      | SubscribeCallback<Resolved<Simplify<AccountInstance<Shape>>, R>>,
+    maybeListener?: SubscribeCallback<
+      Resolved<Simplify<AccountInstance<Shape>>, R>
+    >,
   ): () => void {
+    if (typeof optionsOrListener === "function") {
+      return this.coValueClass.subscribe(
+        id,
+        withSchemaResolveQuery({}, this.resolveQuery),
+        // @ts-expect-error
+        optionsOrListener,
+      );
+    }
     return this.coValueClass.subscribe(
       id,
       // @ts-expect-error
-      withSchemaResolveQuery(options, this.resolveQuery),
-      listener,
+      withSchemaResolveQuery(optionsOrListener, this.resolveQuery),
+      maybeListener,
     );
   }
 

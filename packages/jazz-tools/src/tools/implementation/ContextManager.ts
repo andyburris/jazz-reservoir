@@ -1,5 +1,4 @@
 import { AgentSecret, LocalNode, cojsonInternals } from "cojson";
-import { PureJSCrypto } from "cojson/dist/crypto/PureJSCrypto";
 import { AuthSecretStorage } from "../auth/AuthSecretStorage.js";
 import { InMemoryKVStore } from "../auth/InMemoryKVStore.js";
 import { KvStore, KvStoreContext } from "../auth/KvStoreContext.js";
@@ -10,6 +9,7 @@ import { AnonymousJazzAgent } from "./anonymousJazzAgent.js";
 import { createAnonymousJazzContext } from "./createContext.js";
 import { InstanceOfSchema } from "./zodSchema/typeConverters/InstanceOfSchema.js";
 import { SubscriptionCache } from "../subscribe/SubscriptionCache.js";
+import { WasmCrypto } from "cojson/crypto/WasmCrypto";
 
 export type JazzContextManagerAuthProps = {
   credentials?: AuthCredentials;
@@ -47,7 +47,7 @@ type PlatformSpecificContext<Acc extends Account> =
 function getAnonymousFallback() {
   const context = createAnonymousJazzContext({
     peers: [],
-    crypto: new PureJSCrypto(),
+    crypto: WasmCrypto.createSync(),
   });
 
   return {
@@ -251,10 +251,30 @@ export class JazzContextManager<
 
   /**
    * Authenticates the user with the given credentials
+   * @param credentials - The credentials to authenticate with
+   * @param forceContextCreation - If true, the context will be created even if the same account is already authenticated
    */
-  authenticate = async (credentials: AuthCredentials) => {
+  authenticate = async (
+    credentials: AuthCredentials,
+    forceContextCreation: boolean = false,
+  ) => {
     if (!this.props) {
       throw new Error("Props required");
+    }
+
+    // Check if already authenticated with the same account
+    // to avoid the creation of a new session
+    if (
+      !forceContextCreation &&
+      this.context &&
+      "me" in this.context &&
+      this.context.me.$jazz.id === credentials.accountID
+    ) {
+      console.log(
+        "Already authenticated with the same account",
+        credentials.accountID,
+      );
+      return;
     }
 
     if (

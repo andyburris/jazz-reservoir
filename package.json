@@ -37,7 +37,10 @@
     "build": "turbo build && cd homepage/homepage && turbo build",
     "build:packages": "turbo build --filter='./packages/*'",
     "build:napi": "turbo build:napi --",
+    "build:wasm": "turbo build:wasm --",
     "build:rn": "turbo build:rn",
+    "build:core": "turbo run build:napi build:rn build:wasm",
+    "build:all-packages": "pnpm build:core && pnpm build:packages",
     "lint": "turbo lint && cd homepage/homepage && pnpm run lint",
     "test": "vitest --project=!cojson-core-napi",
     "test:ci": "vitest run --watch=false",
@@ -70,7 +73,8 @@
       "esbuild": "0.24.0",
       "form-data": ">=4.0.4",
       "happy-dom": ">=20.0.0",
-      "rfc6902": ">=5.0.0"
+      "rfc6902": ">=5.0.0",
+      "better-auth": "^1.4.7"
     },
     "onlyBuiltDependencies": [
       "@biomejs/biome",

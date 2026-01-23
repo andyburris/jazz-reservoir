@@ -7,7 +7,6 @@ import {
   cojsonInternals,
   logger,
 } from "cojson";
-import { addMessageToBacklog } from "./serialization.js";
 import type { AnyWebSocket } from "./types.js";
 import {
   hasWebSocketTooMuchBufferedData,
@@ -16,14 +15,13 @@ import {
   waitForWebSocketOpen,
 } from "./utils.js";
 
-const { CO_VALUE_PRIORITY, getContentMessageSize } = cojsonInternals;
-
-export const MAX_OUTGOING_MESSAGES_CHUNK_BYTES = 25_000;
+const { CO_VALUE_PRIORITY, getContentMessageSize, WEBSOCKET_CONFIG } =
+  cojsonInternals;
 
 export class BatchedOutgoingMessages
   implements CojsonInternalTypes.OutgoingPeerChannel
 {
-  private backlog = "";
+  private backlog: string[] = [];
   private queue: PriorityBasedMessageQueue;
   private processing = false;
   private closed = false;
@@ -71,6 +69,14 @@ export class BatchedOutgoingMessages
       return;
     }
 
+    if (
+      isWebSocketOpen(this.websocket) &&
+      !hasWebSocketTooMuchBufferedData(this.websocket)
+    ) {
+      this.processMessage(msg, true);
+      return;
+    }
+
     this.processQueue().catch((e) => {
       logger.error("Error while processing sendMessage queue", { err: e });
     });
@@ -80,10 +86,6 @@ export class BatchedOutgoingMessages
     const { websocket } = this;
 
     this.processing = true;
-
-    // Delay the initiation of the queue processing to accumulate messages
-    // before sending them, in order to do prioritization and batching
-    await new Promise<void>((resolve) => setTimeout(resolve, 5));
 
     let msg = this.queue.pull();
 
@@ -111,38 +113,54 @@ export class BatchedOutgoingMessages
     this.processing = false;
   }
 
-  private processMessage(msg: SyncMessage) {
+  private processMessage(msg: SyncMessage, skipBatching: boolean = false) {
     if (msg.action === "content") {
       this.egressBytesCounter.add(getContentMessageSize(msg), this.meta);
     }
 
-    if (!this.batching) {
-      this.websocket.send(JSON.stringify(msg));
+    const stringifiedMsg = this.serializeMessage(msg);
+
+    if (!this.batching || skipBatching) {
+      this.websocket.send(stringifiedMsg);
       return;
     }
 
-    const payload = addMessageToBacklog(this.backlog, msg);
+    const msgSize = stringifiedMsg.length;
+    const newBacklogSize = this.backlog.length + msgSize;
 
-    const maxChunkSizeReached =
-      payload.length >= MAX_OUTGOING_MESSAGES_CHUNK_BYTES;
-    const backlogExists = this.backlog.length > 0;
-
-    if (maxChunkSizeReached && backlogExists) {
+    // If backlog+message exceeds the chunk size, send the backlog and reset it
+    if (
+      this.backlog.length > 0 &&
+      newBacklogSize > WEBSOCKET_CONFIG.MAX_OUTGOING_MESSAGES_CHUNK_BYTES
+    ) {
       this.sendMessagesInBulk();
-      this.backlog = addMessageToBacklog("", msg);
-    } else if (maxChunkSizeReached) {
-      this.backlog = payload;
-      this.sendMessagesInBulk();
-    } else {
-      this.backlog = payload;
     }
+
+    this.appendMessage(stringifiedMsg);
+
+    // If message itself exceeds the chunk size, send it immediately
+    if (msgSize >= WEBSOCKET_CONFIG.MAX_OUTGOING_MESSAGES_CHUNK_BYTES) {
+      this.sendMessagesInBulk();
+    }
+  }
+
+  private serializeMessage(msg: SyncMessage) {
+    return JSON.stringify(msg);
+  }
+
+  private appendMessage(msg: string) {
+    this.backlog.push(msg);
   }
 
   private sendMessagesInBulk() {
     if (this.backlog.length > 0 && isWebSocketOpen(this.websocket)) {
-      this.websocket.send(this.backlog);
-      this.backlog = "";
+      this.websocket.send(this.backlog.join("\n"));
+      this.backlog.length = 0;
     }
+  }
+
+  drain() {
+    while (this.queue.pull()) {}
   }
 
   setBatching(enabled: boolean) {

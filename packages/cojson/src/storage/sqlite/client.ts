@@ -4,6 +4,8 @@ import type {
 } from "../../coValueCore/verifiedState.js";
 import type { Signature } from "../../crypto/crypto.js";
 import type { RawCoID, SessionID } from "../../exports.js";
+import type { CoValueKnownState } from "../../knownState.js";
+import type { PeerID } from "../../sync.js";
 import { logger } from "../../logger.js";
 import type {
   DBClientInterfaceSync,
@@ -14,6 +16,7 @@ import type {
   StoredSessionRow,
   TransactionRow,
 } from "../types.js";
+import { DeletedCoValueDeletionStatus } from "../types.js";
 import type { SQLiteDatabaseDriver } from "./types.js";
 
 export type RawCoValueRow = {
@@ -25,6 +28,10 @@ export type RawTransactionRow = {
   ses: number;
   idx: number;
   tx: string;
+};
+
+type DeletedCoValueQueueRow = {
+  id: RawCoID;
 };
 
 export function getErrorMessage(error: unknown) {
@@ -141,6 +148,78 @@ export class SQLiteClient
     return result.rowID;
   }
 
+  markCoValueAsDeleted(id: RawCoID) {
+    // Work queue entry. Table only stores the coValueID.
+    // Idempotent by design.
+    this.db.run(
+      `INSERT INTO deletedCoValues (coValueID) VALUES (?) ON CONFLICT(coValueID) DO NOTHING`,
+      [id],
+    );
+  }
+
+  eraseCoValueButKeepTombstone(coValueId: RawCoID) {
+    const coValueRow = this.db.get<{ rowID: number }>(
+      "SELECT rowID FROM coValues WHERE id = ?",
+      [coValueId],
+    );
+
+    if (!coValueRow) {
+      logger.warn(`CoValue ${coValueId} not found, skipping deletion`);
+      return;
+    }
+
+    this.transaction(() => {
+      this.db.run(
+        `DELETE FROM transactions
+       WHERE ses IN (
+         SELECT rowID FROM sessions
+         WHERE coValue = ?
+           AND sessionID NOT LIKE '%$'
+       )`,
+        [coValueRow.rowID],
+      );
+
+      this.db.run(
+        `DELETE FROM signatureAfter
+       WHERE ses IN (
+         SELECT rowID FROM sessions
+         WHERE coValue = ?
+           AND sessionID NOT LIKE '%$'
+       )`,
+        [coValueRow.rowID],
+      );
+
+      this.db.run(
+        `DELETE FROM sessions
+       WHERE coValue = ?
+         AND sessionID NOT LIKE '%$'`,
+        [coValueRow.rowID],
+      );
+
+      // Mark the delete as done
+      this.db.run(
+        `INSERT INTO deletedCoValues (coValueID, status) VALUES (?, ?)
+       ON CONFLICT(coValueID) DO UPDATE SET status=?`,
+        [
+          coValueId,
+          DeletedCoValueDeletionStatus.Done,
+          DeletedCoValueDeletionStatus.Done,
+        ],
+      );
+    });
+  }
+
+  getAllCoValuesWaitingForDelete(): RawCoID[] {
+    return this.db
+      .query<DeletedCoValueQueueRow>(
+        `SELECT coValueID as id
+         FROM deletedCoValues
+         WHERE status = ?`,
+        [DeletedCoValueDeletionStatus.Pending],
+      )
+      .map((r) => r.id);
+  }
+
   addSessionUpdate({ sessionUpdate }: { sessionUpdate: SessionRow }): number {
     const result = this.db.get<{ rowID: number }>(
       `INSERT INTO sessions (coValue, sessionID, lastIdx, lastSignature, bytesSinceLastSignature) VALUES (?, ?, ?, ?, ?)
@@ -192,5 +271,65 @@ export class SQLiteClient
   transaction(operationsCallback: (tx: DBTransactionInterfaceSync) => unknown) {
     this.db.transaction(() => operationsCallback(this));
     return undefined;
+  }
+
+  getUnsyncedCoValueIDs(): RawCoID[] {
+    const rows = this.db.query<{ co_value_id: RawCoID }>(
+      "SELECT DISTINCT co_value_id FROM unsynced_covalues",
+      [],
+    ) as { co_value_id: RawCoID }[];
+    return rows.map((row) => row.co_value_id);
+  }
+
+  trackCoValuesSyncState(
+    updates: { id: RawCoID; peerId: PeerID; synced: boolean }[],
+  ): void {
+    for (const update of updates) {
+      if (update.synced) {
+        this.db.run(
+          "DELETE FROM unsynced_covalues WHERE co_value_id = ? AND peer_id = ?",
+          [update.id, update.peerId],
+        );
+      } else {
+        this.db.run(
+          "INSERT OR REPLACE INTO unsynced_covalues (co_value_id, peer_id) VALUES (?, ?)",
+          [update.id, update.peerId],
+        );
+      }
+    }
+  }
+
+  stopTrackingSyncState(id: RawCoID): void {
+    this.db.run("DELETE FROM unsynced_covalues WHERE co_value_id = ?", [id]);
+  }
+
+  getCoValueKnownState(coValueId: string): CoValueKnownState | undefined {
+    // First check if the CoValue exists
+    const coValueRow = this.db.get<{ rowID: number }>(
+      "SELECT rowID FROM coValues WHERE id = ?",
+      [coValueId],
+    );
+
+    if (!coValueRow) {
+      return undefined;
+    }
+
+    // Get all session counters without loading transactions
+    const sessions = this.db.query<{ sessionID: SessionID; lastIdx: number }>(
+      "SELECT sessionID, lastIdx FROM sessions WHERE coValue = ?",
+      [coValueRow.rowID],
+    );
+
+    const knownState: CoValueKnownState = {
+      id: coValueId as RawCoID,
+      header: true,
+      sessions: {},
+    };
+
+    for (const session of sessions) {
+      knownState.sessions[session.sessionID] = session.lastIdx;
+    }
+
+    return knownState;
   }
 }

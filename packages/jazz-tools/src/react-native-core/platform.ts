@@ -1,6 +1,5 @@
 import NetInfo from "@react-native-community/netinfo";
 import { LocalNode, Peer, getSqliteStorageAsync } from "cojson";
-import { PureJSCrypto } from "cojson/dist/crypto/PureJSCrypto"; // Importing from dist to not rely on the exports field
 import {
   Account,
   AccountClass,
@@ -20,14 +19,12 @@ import { ReactNativeSessionProvider } from "./ReactNativeSessionProvider.js";
 
 import { SQLiteDatabaseDriverAsync } from "cojson";
 import { WebSocketPeerWithReconnection } from "cojson-transport-ws";
-import type { RNQuickCrypto } from "jazz-tools/react-native-core/crypto";
-import type { RNCrypto } from "cojson/crypto/RNCrypto";
+import { RNCrypto } from "cojson/crypto/RNCrypto";
 
 export type BaseReactNativeContextOptions = {
   sync: SyncConfig;
   reconnectionTimeout?: number;
   storage?: SQLiteDatabaseDriverAsync | "disabled";
-  CryptoProvider?: typeof PureJSCrypto | typeof RNQuickCrypto | typeof RNCrypto;
   authSecretStorage: AuthSecretStorage;
 };
 
@@ -40,8 +37,7 @@ class ReactNativeWebSocketPeerWithReconnection extends WebSocketPeerWithReconnec
 }
 
 async function setupPeers(options: BaseReactNativeContextOptions) {
-  const CryptoProvider = options.CryptoProvider || PureJSCrypto;
-  const crypto = await CryptoProvider.create();
+  const crypto = await RNCrypto.create();
   let node: LocalNode | undefined = undefined;
 
   const peers: Peer[] = [];
@@ -57,6 +53,7 @@ async function setupPeers(options: BaseReactNativeContextOptions) {
       addConnectionListener: () => () => {},
       connected: () => false,
       peers,
+      syncWhen: options.sync.when,
       setNode: () => {},
       crypto,
       storage,
@@ -105,6 +102,7 @@ async function setupPeers(options: BaseReactNativeContextOptions) {
     },
     connected: () => wsPeer.connected,
     peers,
+    syncWhen: options.sync.when,
     setNode,
     crypto,
     storage,
@@ -117,6 +115,7 @@ export async function createJazzReactNativeGuestContext(
   const {
     toggleNetwork,
     peers,
+    syncWhen,
     setNode,
     crypto,
     storage,
@@ -127,6 +126,7 @@ export async function createJazzReactNativeGuestContext(
   const context = createAnonymousJazzContext({
     crypto,
     peers,
+    syncWhen,
     storage,
   });
 
@@ -169,6 +169,7 @@ export async function createJazzReactNativeContext<
   const {
     toggleNetwork,
     peers,
+    syncWhen,
     setNode,
     crypto,
     storage,
@@ -203,6 +204,7 @@ export async function createJazzReactNativeContext<
     credentials: options.credentials,
     newAccountProps: options.newAccountProps,
     peers,
+    syncWhen,
     crypto,
     defaultProfileName: options.defaultProfileName,
     AccountSchema: options.AccountSchema,

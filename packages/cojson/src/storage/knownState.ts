@@ -11,22 +11,34 @@ import {
  * and provides the API to wait for the data to be fully stored.
  */
 export class StorageKnownState {
-  knwonStates = new Map<string, CoValueKnownState>();
+  knownStates = new Map<string, CoValueKnownState>();
 
   getKnownState(id: string): CoValueKnownState {
-    const knownState = this.knwonStates.get(id);
+    const knownState = this.knownStates.get(id);
 
     if (!knownState) {
       const empty = emptyKnownState(id as RawCoID);
-      this.knwonStates.set(id, empty);
+      this.knownStates.set(id, empty);
       return empty;
     }
 
     return knownState;
   }
 
+  /**
+   * Get a cached knownState if it exists and has a header.
+   * Unlike getKnownState, this doesn't create an empty state if one doesn't exist.
+   */
+  getCachedKnownState(id: string): CoValueKnownState | undefined {
+    const knownState = this.knownStates.get(id);
+    if (knownState?.header) {
+      return knownState;
+    }
+    return undefined;
+  }
+
   setKnownState(id: string, knownState: CoValueKnownState) {
-    this.knwonStates.set(id, knownState);
+    this.knownStates.set(id, knownState);
   }
 
   handleUpdate(id: string, knownState: CoValueKnownState) {

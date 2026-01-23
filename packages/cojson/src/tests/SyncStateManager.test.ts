@@ -46,7 +46,7 @@ describe("SyncStateManager", () => {
     const newPeerState = client.node.syncManager.peers[peerState.id]!;
 
     expect(updateSpy).toHaveBeenCalledWith(
-      peerState.id,
+      expect.objectContaining({ id: peerState.id }),
       newPeerState.getKnownState(map.core.id)!,
       { uploaded: true },
     );
@@ -78,10 +78,12 @@ describe("SyncStateManager", () => {
     const updateToStorageSpy: PeerSyncStateListenerCallback = vi.fn();
     const unsubscribe1 = subscriptionManager.subscribeToPeerUpdates(
       peerState.id,
+      map.core.id,
       updateToJazzCloudSpy,
     );
     const unsubscribe2 = subscriptionManager.subscribeToPeerUpdates(
       serverPeer.id,
+      group.core.id,
       updateToStorageSpy,
     );
 
@@ -141,6 +143,7 @@ describe("SyncStateManager", () => {
     const unsubscribe1 = subscriptionManager.subscribeToUpdates(anyUpdateSpy);
     const unsubscribe2 = subscriptionManager.subscribeToPeerUpdates(
       peerState.id,
+      map.core.id,
       anyUpdateSpy,
     );
 

@@ -21,7 +21,6 @@ import {
   createAnonymousJazzContext,
 } from "jazz-tools";
 import { createJazzContext } from "jazz-tools";
-import { StorageConfig, getStorageOptions } from "./storageOptions.js";
 import { setupInspector } from "./utils/export-account-inspector.js";
 import { getBrowserLockSessionProvider } from "./provideBrowserLockSession/index.js";
 
@@ -30,7 +29,7 @@ setupInspector();
 export type BaseBrowserContextOptions = {
   sync: SyncConfig;
   reconnectionTimeout?: number;
-  storage?: StorageConfig;
+  storage?: "indexedDB";
   crypto?: CryptoProvider;
   authSecretStorage: AuthSecretStorage;
 };
@@ -52,11 +51,9 @@ async function setupPeers(options: BaseBrowserContextOptions) {
   const crypto = options.crypto || (await WasmCrypto.create());
   let node: LocalNode | undefined = undefined;
 
-  const { useIndexedDB } = getStorageOptions(options.storage);
-
   const peers: Peer[] = [];
 
-  const storage = useIndexedDB ? await getIndexedDBStorage() : undefined;
+  const storage = await getIndexedDBStorage();
 
   if (options.sync.when === "never") {
     return {
@@ -64,6 +61,7 @@ async function setupPeers(options: BaseBrowserContextOptions) {
       connected: () => false,
       toggleNetwork: () => {},
       peers,
+      syncWhen: options.sync.when,
       storage,
       setNode: () => {},
       crypto,
@@ -114,6 +112,7 @@ async function setupPeers(options: BaseBrowserContextOptions) {
       return wsPeer.connected;
     },
     peers,
+    syncWhen: options.sync.when,
     storage,
     setNode,
     crypto,
@@ -126,6 +125,7 @@ export async function createJazzBrowserGuestContext(
   const {
     toggleNetwork,
     peers,
+    syncWhen,
     setNode,
     crypto,
     storage,
@@ -136,6 +136,7 @@ export async function createJazzBrowserGuestContext(
   const context = await createAnonymousJazzContext({
     crypto,
     peers,
+    syncWhen,
     storage,
   });
 
@@ -178,6 +179,7 @@ export async function createJazzBrowserContext<
   const {
     toggleNetwork,
     peers,
+    syncWhen,
     setNode,
     crypto,
     storage,
@@ -207,6 +209,7 @@ export async function createJazzBrowserContext<
     credentials: options.credentials,
     newAccountProps: options.newAccountProps,
     peers,
+    syncWhen,
     storage,
     crypto,
     defaultProfileName: options.defaultProfileName,

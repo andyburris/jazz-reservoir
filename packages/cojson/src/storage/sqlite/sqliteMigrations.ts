@@ -31,6 +31,22 @@ export const migrations: Record<number, string[]> = {
     ) WITHOUT ROWID;`,
     "ALTER TABLE sessions ADD COLUMN bytesSinceLastSignature INTEGER;",
   ],
+  4: [
+    `CREATE TABLE IF NOT EXISTS unsynced_covalues (
+      rowID INTEGER PRIMARY KEY,
+      co_value_id TEXT NOT NULL,
+      peer_id TEXT NOT NULL,
+      UNIQUE (co_value_id, peer_id)
+    );`,
+    "CREATE INDEX IF NOT EXISTS idx_unsynced_covalues_co_value_id ON unsynced_covalues(co_value_id);",
+  ],
+  5: [
+    `CREATE TABLE IF NOT EXISTS deletedCoValues (
+      coValueID TEXT PRIMARY KEY,
+      status INTEGER NOT NULL DEFAULT 0
+    ) WITHOUT ROWID;`,
+    "CREATE INDEX IF NOT EXISTS deletedCoValuesByStatus ON deletedCoValues (status);",
+  ],
 };
 
 type Migration = {

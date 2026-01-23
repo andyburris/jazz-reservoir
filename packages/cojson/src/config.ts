@@ -7,25 +7,17 @@
 **/
 export const TRANSACTION_CONFIG = {
   MAX_RECOMMENDED_TX_SIZE: 100 * 1024,
-  /**
-   * Messages larger than this will be rejected when creating a transaction.
-   * The current limit is set at 1MB because that's the limit imposed by Cloudflare to Websocket messages.
-   */
-  MAX_TX_SIZE_BYTES: 1 * 1024 * 1024,
 };
 
 export function setMaxRecommendedTxSize(size: number) {
   TRANSACTION_CONFIG.MAX_RECOMMENDED_TX_SIZE = size;
 }
 
-export function setMaxTxSizeBytes(size: number) {
-  TRANSACTION_CONFIG.MAX_TX_SIZE_BYTES = size;
-}
-
 export const CO_VALUE_LOADING_CONFIG = {
   MAX_RETRIES: 1,
-  TIMEOUT: 30_000,
+  TIMEOUT: 60_000,
   RETRY_DELAY: 3000,
+  MAX_IN_FLIGHT_LOADS_PER_PEER: 1000,
 };
 
 export function setCoValueLoadingMaxRetries(maxRetries: number) {
@@ -59,4 +51,16 @@ export function setGarbageCollectorMaxAge(maxAge: number) {
 
 export function setGarbageCollectorInterval(interval: number) {
   GARBAGE_COLLECTOR_CONFIG.INTERVAL = interval;
+}
+
+export const WEBSOCKET_CONFIG = {
+  MAX_OUTGOING_MESSAGES_CHUNK_BYTES: 25_000,
+};
+
+export function setMaxOutgoingMessagesChunkBytes(bytes: number) {
+  WEBSOCKET_CONFIG.MAX_OUTGOING_MESSAGES_CHUNK_BYTES = bytes;
+}
+
+export function setMaxInFlightLoadsPerPeer(limit: number) {
+  CO_VALUE_LOADING_CONFIG.MAX_IN_FLIGHT_LOADS_PER_PEER = limit;
 }
