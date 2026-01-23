@@ -1,6 +1,6 @@
-import { PureJSCrypto } from "cojson/dist/crypto/PureJSCrypto";
-import { Account, co, Group, z } from "jazz-tools";
+import { co, cojsonInternals, z } from "jazz-tools";
 import { describe, expect, it } from "vitest";
+import { createJazzTestAccount, setupJazzTestSync } from "../testing";
 
 // const Regular = co.map({ text: z.string()})
 // const regular = Regular.create({ text: "hello world" });
@@ -37,18 +37,20 @@ const Test = co
     };
   });
 
-function getBasicAccount() {
-  return Account.create({
-    creationProps: { name: "Test User" },
-    crypto: new PureJSCrypto(),
+beforeEach(async () => {
+  cojsonInternals.CO_VALUE_LOADING_CONFIG.RETRY_DELAY = 1000;
+
+  await setupJazzTestSync();
+
+  await createJazzTestAccount({
+    isCurrentActiveAccount: true,
+    creationProps: { name: "Hermes Puggington" },
   });
-}
+});
 
 describe("ComputedCoMap wordCount", () => {
   it("runs computation for a single subscriber", async () => {
-    const account = await getBasicAccount();
-    const group = await Group.create({ owner: account });
-    const test = Test.create({ text: "hello world" }, { owner: group });
+    const test = Test.create({ text: "hello world" });
 
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);

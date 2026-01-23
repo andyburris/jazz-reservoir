@@ -1,7 +1,7 @@
-import { PureJSCrypto } from "cojson/dist/crypto/PureJSCrypto";
-import { Account, co, Group, z } from "jazz-tools";
+import { co, cojsonInternals, Group, z } from "jazz-tools";
 import { describe, expect, it } from "vitest";
 import { ComputedCoMapInstanceShape } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
+import { createJazzTestAccount, setupJazzTestSync } from "../testing";
 
 const Child = co.map({ text: z.string() });
 const Parent = co
@@ -31,21 +31,20 @@ const Grandparent = co.map({
   parent: Parent,
 });
 
-function getBasicAccount() {
-  return Account.create({
-    creationProps: { name: "Test User" },
-    crypto: new PureJSCrypto(),
+beforeEach(async () => {
+  cojsonInternals.CO_VALUE_LOADING_CONFIG.RETRY_DELAY = 1000;
+
+  await setupJazzTestSync();
+
+  await createJazzTestAccount({
+    isCurrentActiveAccount: true,
+    creationProps: { name: "Hermes Puggington" },
   });
-}
+});
 
 describe("ComputedCoMap wordCount", () => {
   it("runs computation for a single subscriber", async () => {
-    const account = await getBasicAccount();
-    const group = await Group.create({ owner: account });
-    const parent = Parent.create(
-      { child: { text: "hello world" } },
-      { owner: group },
-    );
+    const parent = Parent.create({ child: { text: "hello world" } });
 
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
@@ -62,12 +61,7 @@ describe("ComputedCoMap wordCount", () => {
   });
 
   it("keeps computation running while any subscriber remains", async () => {
-    const account = await getBasicAccount();
-    const group = await Group.create({ owner: account });
-    const parent = Parent.create(
-      { child: { text: "one two" } },
-      { owner: group },
-    );
+    const parent = Parent.create({ child: { text: "one two" } });
 
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 4000);
@@ -106,12 +100,7 @@ describe("ComputedCoMap wordCount", () => {
   // TODO: eventually we should be updating whenever it's resolved in the LocalNode,
   // so this test should become wrong eventually
   it("stops computation when all subscribers unsubscribe", async () => {
-    const account = await getBasicAccount();
-    const group = await Group.create({ owner: account });
-    const parent = Parent.create(
-      { child: { text: "alpha beta" } },
-      { owner: group },
-    );
+    const parent = Parent.create({ child: { text: "alpha beta" } });
 
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
@@ -137,16 +126,11 @@ describe("ComputedCoMap wordCount", () => {
   });
 
   it("runs computation when nested in a subscribed CoMap", async () => {
-    const account = await getBasicAccount();
-    const group = await Group.create({ owner: account });
-    const grandparent = Grandparent.create(
-      {
-        parent: {
-          child: { text: "red blue green" },
-        },
+    const grandparent = Grandparent.create({
+      parent: {
+        child: { text: "red blue green" },
       },
-      { owner: group },
-    );
+    });
 
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("timeout")), 2000);
@@ -166,12 +150,7 @@ describe("ComputedCoMap wordCount", () => {
   });
 
   it("lastComputedValue returns the uncomputed value when computation has never completed", async () => {
-    const account = await getBasicAccount();
-    const group = Group.create({ owner: account });
-    const parent = Parent.create(
-      { child: { text: "never computed" } },
-      { owner: group },
-    );
+    const parent = Parent.create({ child: { text: "never computed" } });
 
     const lastComputed = parent.$jazz.lastComputedValue;
     assertIsUncomputed(lastComputed);
@@ -179,12 +158,7 @@ describe("ComputedCoMap wordCount", () => {
   });
 
   it("lastComputedValue returns the computed value when a computation is completed", async () => {
-    const account = await getBasicAccount();
-    const group = Group.create({ owner: account });
-    const parent = Parent.create(
-      { child: { text: "initial" } },
-      { owner: group },
-    );
+    const parent = Parent.create({ child: { text: "initial" } });
 
     let computedOnce = false;
 
