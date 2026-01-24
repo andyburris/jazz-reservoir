@@ -680,7 +680,7 @@ export class SubscriptionScope<D extends CoValue> {
         // console.log("triggerUpdate - starting computation for", this.value.value.$jazz.id, "current listener count =", this.subscribers.size);
         COMPUTATION_CACHE.startComputation(
           this as unknown as SubscriptionScope<ComputedCoMap<any, any>>,
-          this.value.value as ComputedCoMap<any, any>,
+          this.value.value as unknown as ComputedCoMap<any, any>,
         );
       }
     }
@@ -1137,7 +1137,7 @@ export class SubscriptionScope<D extends CoValue> {
     ) {
       COMPUTATION_CACHE.removeComputationSubscription(
         this as unknown as SubscriptionScope<ComputedCoMap<any, any>>,
-        this.value.value as ComputedCoMap<any, any>,
+        this.value.value as unknown as ComputedCoMap<any, any>,
       );
     }
     // Clear subscriber change callbacks to prevent memory leaks

@@ -165,7 +165,7 @@ export function withComputationForSchema<
   });
 
   copy.resolveQuery = baseSchema.resolveQuery;
-  copy.permissions = baseSchema.permissions;
+  copy.setPermissions(baseSchema.permissions);
   copy.computedShape = computedShape;
   copy._computation = computation;
 

@@ -1,5 +1,5 @@
-import { co, cojsonInternals, Group, z } from "jazz-tools";
-import { describe, expect, it } from "vitest";
+import { co, z } from "../exports";
+import { beforeEach, describe, expect, test } from "vitest";
 import { ComputedCoMapInstanceShape } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
 import { createJazzTestAccount, setupJazzTestSync } from "../testing";
 
@@ -31,19 +31,17 @@ const Grandparent = co.map({
   parent: Parent,
 });
 
-beforeEach(async () => {
-  cojsonInternals.CO_VALUE_LOADING_CONFIG.RETRY_DELAY = 1000;
-
-  await setupJazzTestSync();
-
-  await createJazzTestAccount({
-    isCurrentActiveAccount: true,
-    creationProps: { name: "Hermes Puggington" },
-  });
-});
-
 describe("ComputedCoMap wordCount", () => {
-  it("runs computation for a single subscriber", async () => {
+  beforeEach(async () => {
+    await setupJazzTestSync();
+
+    await createJazzTestAccount({
+      isCurrentActiveAccount: true,
+      creationProps: { name: "Hermes Puggington" },
+    });
+  });
+
+  test("runs computation for a single subscriber", async () => {
     const parent = Parent.create({ child: { text: "hello world" } });
 
     await new Promise<void>((resolve, reject) => {
@@ -60,7 +58,7 @@ describe("ComputedCoMap wordCount", () => {
     });
   });
 
-  it("keeps computation running while any subscriber remains", async () => {
+  test("keeps computation running while any subscriber remains", async () => {
     const parent = Parent.create({ child: { text: "one two" } });
 
     await new Promise<void>((resolve, reject) => {
@@ -99,7 +97,7 @@ describe("ComputedCoMap wordCount", () => {
 
   // TODO: eventually we should be updating whenever it's resolved in the LocalNode,
   // so this test should become wrong eventually
-  it("stops computation when all subscribers unsubscribe", async () => {
+  test("stops computation when all subscribers unsubscribe", async () => {
     const parent = Parent.create({ child: { text: "alpha beta" } });
 
     await new Promise<void>((resolve, reject) => {
@@ -125,7 +123,7 @@ describe("ComputedCoMap wordCount", () => {
     expect(parent.wordCount).toBe(2);
   });
 
-  it("runs computation when nested in a subscribed CoMap", async () => {
+  test("runs computation when nested in a subscribed CoMap", async () => {
     const grandparent = Grandparent.create({
       parent: {
         child: { text: "red blue green" },
@@ -149,7 +147,7 @@ describe("ComputedCoMap wordCount", () => {
     });
   });
 
-  it("lastComputedValue returns the uncomputed value when computation has never completed", async () => {
+  test("lastComputedValue returns the uncomputed value when computation has never completed", async () => {
     const parent = Parent.create({ child: { text: "never computed" } });
 
     const lastComputed = parent.$jazz.lastComputedValue;
@@ -157,7 +155,7 @@ describe("ComputedCoMap wordCount", () => {
     expect(lastComputed.child.text).toBe("never computed");
   });
 
-  it("lastComputedValue returns the computed value when a computation is completed", async () => {
+  test("lastComputedValue returns the computed value when a computation is completed", async () => {
     const parent = Parent.create({ child: { text: "initial" } });
 
     let computedOnce = false;

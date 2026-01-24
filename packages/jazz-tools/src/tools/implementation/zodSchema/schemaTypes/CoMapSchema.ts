@@ -439,6 +439,10 @@ export class CoMapSchema<
     copy.#permissions = permissions ?? this.#permissions;
     return copy;
   }
+
+  setPermissions(permissions: SchemaPermissions) {
+    this.#permissions = permissions;
+  }
 }
 
 export function createCoreCoMapSchema<

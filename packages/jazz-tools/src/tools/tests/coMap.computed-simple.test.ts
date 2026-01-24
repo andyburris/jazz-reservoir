@@ -1,6 +1,6 @@
-import { co, cojsonInternals, z } from "jazz-tools";
-import { describe, expect, it } from "vitest";
-import { createJazzTestAccount, setupJazzTestSync } from "../testing";
+import { co, z } from "../exports";
+import { beforeEach, describe, expect, it, test } from "vitest";
+import { createJazzTestAccount, setupJazzTestSync } from "../testing.js";
 
 // const Regular = co.map({ text: z.string()})
 // const regular = Regular.create({ text: "hello world" });
@@ -38,8 +38,6 @@ const Test = co
   });
 
 beforeEach(async () => {
-  cojsonInternals.CO_VALUE_LOADING_CONFIG.RETRY_DELAY = 1000;
-
   await setupJazzTestSync();
 
   await createJazzTestAccount({
