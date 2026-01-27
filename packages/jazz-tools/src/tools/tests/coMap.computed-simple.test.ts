@@ -1,5 +1,5 @@
+import { beforeEach, describe, expect, it } from "vitest";
 import { co, z } from "../exports";
-import { beforeEach, describe, expect, it, test } from "vitest";
 import { createJazzTestAccount, setupJazzTestSync } from "../testing.js";
 
 // const Regular = co.map({ text: z.string()})
@@ -12,22 +12,18 @@ const Test = co
   .map({
     text: z.string(),
   })
-  .withComputed({ wordCount: z.number() }, (self) => {
-    const stopListening = self.$jazz.subscribe((resolved) => {
+  .withComputed({ wordCount: z.number() })
+  .withComputation((self) => {
+    const stopListening = self.$jazz.subscribe(async (resolved) => {
       if (resolved.$isComputed === true) {
         console.log("Computed word count", resolved.wordCount);
-      } else {
-        const count = resolved.text
+      } else if (resolved.$jazz.computationState === "uncomputed") {
+        const pinnedBase = await resolved.$jazz.startComputation();
+        const count = pinnedBase.text
           .trim()
           .split(/\s+/)
           .filter((w) => w.length > 0).length;
-        resolved.$jazz.finishComputation({ wordCount: count });
-        // // @ts-expect-error
-        // resolved.$jazz.finishComputation();
-        // // @ts-expect-error
-        // resolved.$jazz.finishComputation({ text: resolved.text, wordCount: count });
-        // // @ts-expect-error
-        // resolved.$jazz.finishComputation({ nonsense: "nonsense" });
+        pinnedBase.$jazz.finishComputation({ wordCount: count });
       }
     });
     return {

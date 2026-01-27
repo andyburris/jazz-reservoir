@@ -30,13 +30,43 @@ export class ComputedCoMapSchema<
   // @ts-expect-error - necessary override to keep CoMapSchema's methods but match CoreComputedCoMapSchema in typescript
   builtin: "ComputedCoMap" = "ComputedCoMap";
   computedShape!: ComputedShape;
-  _computation!: (
+  _computation?: (
     self: Resolved<
       Simplify<ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape>> &
         ComputedCoMap<Shape, ComputedShape>,
       true
     >,
   ) => { stopListening: () => void };
+
+  /**
+   * Set the computation function for this ComputedCoMap.
+   * Preserves the existing computedShape.
+   */
+  // @ts-expect-error overriding shape
+  withComputation(
+    computation: (
+      self: Resolved<
+        Simplify<
+          ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape>
+        > &
+          ComputedCoMap<Shape, ComputedShape>,
+        true
+      >,
+    ) => { stopListening: () => void },
+  ): ComputedCoMapSchema<
+    Shape,
+    ComputedShape,
+    CatchAll,
+    Owner,
+    DefaultResolveQuery
+  > {
+    // @ts-expect-error overriding shape
+    return withComputationFunctionForSchema(
+      this,
+      this.computedShape,
+      computation,
+    );
+  }
 
   // @ts-expect-error - ComputedCoMapSchema intentionally narrows return types to discriminated union
   override create(
@@ -57,7 +87,7 @@ export class ComputedCoMapSchema<
     ComputedCoMap<Shape, ComputedShape>;
   // @ts-expect-error - ComputedCoMapSchema intentionally narrows return types to discriminated union
   override create(init: any, options?: any) {
-    const initWithComputed = { ...init /*$isComputed: false*/ };
+    const initWithComputed = { ...init, $internalComputationState: null };
     return super.create(initWithComputed, options) as any;
   }
 
@@ -121,7 +151,57 @@ export interface CoreComputedCoMapSchema<
   getDefinition: () => CoMapSchemaDefinition;
 }
 
-export function withComputationForSchema<
+/**
+ * Creates a ComputedCoMapSchema with only computed shape (no computation function).
+ * Used by CoMapSchema.withComputed()
+ */
+export function withComputedShapeForSchema<
+  Shape extends z.core.$ZodLooseShape,
+  ComputedShape extends z.core.$ZodLooseShape,
+  CatchAll extends AnyZodOrCoValueSchema | unknown,
+  Owner extends Account | Group,
+  DefaultResolveQuery extends CoreResolveQuery,
+>(
+  baseSchema: CoMapSchema<Shape, CatchAll, Owner, DefaultResolveQuery>,
+  computedShape: ComputedShape,
+): ComputedCoMapSchema<
+  Shape,
+  ComputedShape,
+  CatchAll,
+  Owner,
+  DefaultResolveQuery
+> {
+  const coreSchema = createCoreCoMapSchema(
+    baseSchema.shape,
+    baseSchema.catchAll,
+  );
+
+  // @ts-expect-error TS cannot infer that the resolveQuery type is valid
+  const copy: ComputedCoMapSchema<
+    Shape,
+    ComputedShape,
+    CatchAll,
+    Owner,
+    DefaultResolveQuery
+  > = hydrateCoreCoValueSchema({
+    ...coreSchema,
+    builtin: "ComputedCoMap",
+    computedShape,
+  });
+
+  copy.resolveQuery = baseSchema.resolveQuery;
+  copy.setPermissions(baseSchema.permissions);
+  copy.computedShape = computedShape;
+  // _computation is left undefined
+
+  return copy;
+}
+
+/**
+ * Creates a ComputedCoMapSchema with a computation function.
+ * Used by CoMapSchema.withComputation() and ComputedCoMapSchema.withComputation()
+ */
+export function withComputationFunctionForSchema<
   Shape extends z.core.$ZodLooseShape,
   ComputedShape extends z.core.$ZodLooseShape,
   CatchAll extends AnyZodOrCoValueSchema | unknown,
@@ -228,3 +308,12 @@ export type ComputedCoMapInstanceCoValuesMaybeLoaded<
         readonly $isComputed: true;
       }
     >;
+
+/**
+ * Type for just the base shape of a ComputedCoMap (no computed properties).
+ * Used for time-pinned snapshots during computation.
+ */
+export type ComputedCoMapBaseShape<Shape extends z.core.$ZodLooseShape> =
+  Simplify<{
+    readonly [key in keyof Shape]: InstanceOrPrimitiveOfSchema<Shape[key]>;
+  }>;

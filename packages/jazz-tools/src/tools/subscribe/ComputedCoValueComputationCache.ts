@@ -17,6 +17,13 @@ class ComputedCoValueComputationCache {
     coValue: ComputedCoMap<any, any>,
   ) {
     const computation = getComputationFromCoValue(coValue);
+
+    // If no computation function (withComputed only, no withComputation),
+    // skip automatic computation - user will call finishComputation manually
+    if (!computation) {
+      return;
+    }
+
     const nodeCache = getOrCreateWeak(
       this.nodes,
       subscriptionScope.node,
@@ -137,16 +144,15 @@ class ComputedCoValueComputationState {
 
 function getComputationFromCoValue(
   coValue: ComputedCoMap<any, any>,
-): (coMap: ComputedCoMap<any, any>) => { stopListening: () => void } {
+):
+  | ((coMap: ComputedCoMap<any, any>) => { stopListening: () => void })
+  | undefined {
   const schema = (coValue.constructor as any)._computedCoMapSchema;
   if (schema === undefined) {
     throw new Error("ComputedCoMap class is missing _computedCoMapSchema");
   }
-  const computation = schema._computation;
-  if (computation === undefined) {
-    throw new Error("ComputedCoMapSchema is missing _computation");
-  }
-  return computation;
+  // _computation may be undefined if only withComputed was used (no withComputation)
+  return schema._computation;
 }
 
 function getOrCreate<K, V>(map: Map<K, V>, key: K, createValue: () => V): V {

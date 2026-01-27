@@ -37,7 +37,8 @@ import { CoreCoValueSchema, CoreResolveQuery } from "./CoValueSchema.js";
 import {
   ComputedCoMapInstanceCoValuesMaybeLoaded,
   ComputedCoMapSchema,
-  withComputationForSchema,
+  withComputedShapeForSchema,
+  withComputationFunctionForSchema,
 } from "./ComputedCoMapSchema.js";
 
 type CoMapSchemaInstance<Shape extends z.core.$ZodLooseShape> = Simplify<
@@ -397,17 +398,12 @@ export class CoMapSchema<
     return this.copy({ permissions });
   }
 
+  /**
+   * Add computed properties to this CoMap schema.
+   * Creates a ComputedCoMapSchema with the specified computed shape.
+   */
   withComputed<ComputedShape extends z.core.$ZodLooseShape>(
     computedShape: ComputedShape,
-    computation: (
-      self: Resolved<
-        Simplify<
-          ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape>
-        > &
-          ComputedCoMap<Shape, ComputedShape>,
-        true
-      >,
-    ) => { stopListening: () => void },
   ): ComputedCoMapSchema<
     Shape,
     ComputedShape,
@@ -415,7 +411,23 @@ export class CoMapSchema<
     Owner,
     DefaultResolveQuery
   > {
-    return withComputationForSchema(this, computedShape, computation);
+    return withComputedShapeForSchema(this, computedShape);
+  }
+
+  /**
+   * Add a computation function to this CoMap schema.
+   * Creates a ComputedCoMapSchema with the computation but no extra computed properties.
+   */
+  withComputation(
+    computation: (
+      self: Resolved<
+        Simplify<ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, {}>> &
+          ComputedCoMap<Shape, {}>,
+        true
+      >,
+    ) => { stopListening: () => void },
+  ): ComputedCoMapSchema<Shape, {}, CatchAll, Owner, DefaultResolveQuery> {
+    return withComputationFunctionForSchema(this, {}, computation);
   }
 
   /**

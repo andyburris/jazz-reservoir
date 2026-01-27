@@ -123,6 +123,8 @@ export function hydrateCoreCoValueSchema<S extends AnyCoreCoValueSchema>(
           }
           // Add $isComputed field as a boolean literal field
           (this as any)["$isComputed"] = coField.boolean;
+          // Add $internalComputationState to track computation status
+          (this as any)["$internalComputationState"] = coField.optional.string;
         }
         if (def.catchall) {
           (this as any)[coField.items] = schemaFieldToCoFieldDef(

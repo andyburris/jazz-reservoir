@@ -1,5 +1,6 @@
 import { CoValueUniqueness, RawCoMap } from "cojson";
 import {
+  ComputedCoMapBaseShape,
   ComputedCoMapInstanceCoValuesMaybeLoaded,
   ComputedCoMapInstanceShape,
 } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
@@ -20,6 +21,26 @@ import {
 } from "../internal";
 import { CoMap, CoMapInit_DEPRECATED, CoMapJazzApi } from "./coMap";
 
+/**
+ * Wait until the next millisecond boundary.
+ * This ensures a clean temporal separation between operations.
+ */
+async function waitForNextMs(): Promise<number> {
+  const startMs = Date.now();
+  return new Promise((resolve) => {
+    const check = () => {
+      const now = Date.now();
+      if (now > startMs) {
+        resolve(now);
+      } else {
+        // Use setImmediate/setTimeout(0) to yield and check again
+        setTimeout(check, 0);
+      }
+    };
+    check();
+  });
+}
+
 export class ComputedCoMap<
   Shape extends z.core.$ZodLooseShape,
   ComputedShape extends z.core.$ZodLooseShape,
@@ -27,24 +48,25 @@ export class ComputedCoMap<
   declare $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, this>;
 
   public get $isComputed(): boolean {
-    // $isComputed is true when all of the properties in the computed shape have been set
-    // more recently than any property in the base shape (including edits to loaded child CoValues)
-    const latestUncomputedEdit = this.$jazz.getLatestUncomputedEdit();
-    const computedEdits = this.$jazz.getComputedEdits();
+    // $isComputed is true when $internalComputationState is "computed" and
+    // no base schema edits have happened since computation started
+    const state = this.$jazz.getComputationState();
 
-    // Check if all computed properties exist and were set after the latest uncomputed edit
-    for (const edit of computedEdits.values()) {
-      if (!edit) {
-        // Computed property hasn't been set yet
-        return false;
-      }
-      if (
-        latestUncomputedEdit &&
-        edit.txIndex <= latestUncomputedEdit.txIndex
-      ) {
-        // Computed property is stale
-        return false;
-      }
+    // If never computed or currently computing, return false
+    if (!state || state.status !== "computed") {
+      return false;
+    }
+
+    // Find the start time that corresponds to this completed computation
+    const startedAt = this.$jazz.getMostRecentStartTime();
+    if (!startedAt) {
+      return false;
+    }
+
+    // Check if any base schema edit has madeAt >= startedAt
+    const latestBaseEditTime = this.$jazz.getLatestBaseEditTime();
+    if (latestBaseEditTime !== null && latestBaseEditTime >= startedAt) {
+      return false;
     }
 
     return true;
@@ -141,8 +163,6 @@ export class ComputedCoMap<
   }
 }
 
-type EditInfo = { txIndex: number; madeAt: number };
-
 export class ComputedCoMapJazzApi<
   Shape extends z.core.$ZodLooseShape,
   ComputedShape extends z.core.$ZodLooseShape,
@@ -154,278 +174,108 @@ export class ComputedCoMapJazzApi<
   }
 
   /**
-   * Get the most recent edit among all uncomputed (base shape) keys,
-   * including edits to nested loaded CoValues.
-   */
-  getLatestUncomputedEdit(): EditInfo | null {
-    const schema = (this.coMap.constructor as any)._computedCoMapSchema;
-    if (!schema) return null;
-
-    const def = schema.getDefinition();
-    const baseKeys = Object.keys(def.shape);
-
-    // Track visited CoValues to prevent infinite recursion
-    const visited = new Set<string>();
-    visited.add(this.id);
-
-    let latestEdit: EditInfo | null = null;
-
-    for (const key of baseKeys) {
-      const edit = this.raw.lastEditAt(key as string);
-      if (edit?.tx.txIndex) {
-        if (!latestEdit || edit.tx.txIndex > latestEdit.txIndex) {
-          latestEdit = { txIndex: edit.tx.txIndex, madeAt: edit.at.getTime() };
-        }
-      }
-
-      // Check if this property is a loaded child CoValue
-      const value = (this.coMap as any)[key];
-      if (value?.$jazz?.id && typeof value === "object") {
-        const childLatest = this.getLatestEditRecursive(
-          value,
-          new Set(visited),
-        );
-        if (
-          childLatest &&
-          (!latestEdit || childLatest.txIndex > latestEdit.txIndex)
-        ) {
-          latestEdit = childLatest;
-        }
-      }
-    }
-
-    return latestEdit;
-  }
-
-  /**
-   * Get the edits for each computed key. Returns a Map where values are
-   * null if the computed property hasn't been set yet.
-   */
-  getComputedEdits(): Map<string, EditInfo | null> {
-    const schema = (this.coMap.constructor as any)._computedCoMapSchema;
-    const result = new Map<string, EditInfo | null>();
-    if (!schema) return result;
-
-    const computedKeys = Object.keys(schema.computedShape);
-
-    for (const key of computedKeys) {
-      const edit = this.raw.lastEditAt(key as string);
-      if (edit?.tx) {
-        result.set(key, {
-          txIndex: edit.tx.txIndex,
-          madeAt: edit.at.getTime(),
-        });
-      } else {
-        result.set(key, null);
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Find the oldest computed edit timestamp. This represents the time when
-   * the computation was completed (all computed keys were set).
-   * Returns null if any computed key has never been set.
-   */
-  getOldestComputedEdit(): EditInfo | null {
-    const computedEdits = this.getComputedEdits();
-    let oldestEdit: EditInfo | null = null;
-
-    for (const edit of computedEdits.values()) {
-      if (!edit) {
-        // A computed property hasn't been set yet
-        return null;
-      }
-      if (!oldestEdit || edit.txIndex < oldestEdit.txIndex) {
-        oldestEdit = edit;
-      }
-    }
-
-    return oldestEdit;
-  }
-
-  /**
-   * Get the latest uncomputed edit that occurred before (or at) a given txIndex.
-   * This is useful for finding the state of uncomputed values at the time
-   * when a computation completed.
-   */
-  getLatestUncomputedEditBefore(beforeTxIndex: number): EditInfo | null {
-    const schema = (this.coMap.constructor as any)._computedCoMapSchema;
-    if (!schema) return null;
-
-    const def = schema.getDefinition();
-    const baseKeys = Object.keys(def.shape);
-
-    // Track visited CoValues to prevent infinite recursion
-    const visited = new Set<string>();
-    visited.add(this.id);
-
-    let latestEdit: EditInfo | null = null;
-
-    for (const key of baseKeys) {
-      // Look through all edits at this key to find the latest one before the cutoff
-      for (const edit of this.raw.editsAt(key as string)) {
-        if (edit.tx.txIndex <= beforeTxIndex) {
-          if (!latestEdit || edit.tx.txIndex > latestEdit.txIndex) {
-            latestEdit = {
-              txIndex: edit.tx.txIndex,
-              madeAt: edit.at.getTime(),
-            };
-          }
-        }
-      }
-
-      // Check if this property is a loaded child CoValue
-      const value = (this.coMap as any)[key];
-      if (value?.$jazz?.id && typeof value === "object") {
-        const childLatest = this.getLatestEditRecursiveBefore(
-          value,
-          beforeTxIndex,
-          new Set(visited),
-        );
-        if (
-          childLatest &&
-          (!latestEdit || childLatest.txIndex > latestEdit.txIndex)
-        ) {
-          latestEdit = childLatest;
-        }
-      }
-    }
-
-    return latestEdit;
-  }
-
-  /**
-   * Helper to get the latest edit time for a CoValue and its children recursively.
-   */
-  private getLatestEditRecursive(
-    coValue: any,
-    visitedSet: Set<string>,
-  ): EditInfo | null {
-    if (!coValue?.$jazz?.id) return null;
-
-    // Prevent infinite recursion
-    if (visitedSet.has(coValue.$jazz.id)) return null;
-    visitedSet.add(coValue.$jazz.id);
-
-    let latestEdit: EditInfo | null = null;
-
-    // Check all properties of this CoValue
-    for (const key of Object.keys(coValue)) {
-      const edit = coValue.$jazz.raw.lastEditAt(key as string);
-      if (edit?.tx.txIndex) {
-        if (!latestEdit || edit.tx.txIndex > latestEdit.txIndex) {
-          latestEdit = { txIndex: edit.tx.txIndex, madeAt: edit.at.getTime() };
-        }
-
-        // If this property is a loaded CoValue, check its edits recursively
-        const value = coValue[key];
-        if (value?.$jazz?.id && typeof value === "object") {
-          const childLatest = this.getLatestEditRecursive(value, visitedSet);
-          if (
-            childLatest &&
-            (!latestEdit || childLatest.txIndex > latestEdit.txIndex)
-          ) {
-            latestEdit = childLatest;
-          }
-        }
-      }
-    }
-
-    return latestEdit;
-  }
-
-  /**
-   * Helper to get the latest edit time (before a cutoff) for a CoValue and its children recursively.
-   */
-  private getLatestEditRecursiveBefore(
-    coValue: any,
-    beforeTxIndex: number,
-    visitedSet: Set<string>,
-  ): EditInfo | null {
-    if (!coValue?.$jazz?.id) return null;
-
-    // Prevent infinite recursion
-    if (visitedSet.has(coValue.$jazz.id)) return null;
-    visitedSet.add(coValue.$jazz.id);
-
-    let latestEdit: EditInfo | null = null;
-
-    // Check all properties of this CoValue
-    for (const key of Object.keys(coValue)) {
-      // Look through all edits to find ones before the cutoff
-      for (const edit of coValue.$jazz.raw.editsAt(key as string)) {
-        if (edit.tx.txIndex <= beforeTxIndex) {
-          if (!latestEdit || edit.tx.txIndex > latestEdit.txIndex) {
-            latestEdit = {
-              txIndex: edit.tx.txIndex,
-              madeAt: edit.at.getTime(),
-            };
-          }
-
-          // If this property is a loaded CoValue, check its edits recursively
-          const value = coValue[key];
-          if (value?.$jazz?.id && typeof value === "object") {
-            const childLatest = this.getLatestEditRecursiveBefore(
-              value,
-              beforeTxIndex,
-              visitedSet,
-            );
-            if (
-              childLatest &&
-              (!latestEdit || childLatest.txIndex > latestEdit.txIndex)
-            ) {
-              latestEdit = childLatest;
-            }
-          }
-        }
-      }
-    }
-
-    return latestEdit;
-  }
-
-  /**
    * Get the last computed state of this ComputedCoMap.
-   * Returns a time-filtered view of the CoMap at the moment when
-   * the computation was last completed, including nested CoValues
-   * in their state at that time.
    *
-   * If a computation has never completed, returns the current state.
+   * Returns a composite view where:
+   * - Base shape properties are from the moment computation started (startedAt - 1)
+   * - Computed shape properties are from when computation finished (finishedAt)
+   *
+   * This represents "what the computation saw" for base props and
+   * "what the computation produced" for computed props.
+   *
+   * If no computation has completed:
+   * - If computation is in progress: returns base shape pinned to startedAt - 1
+   * - If never started: returns current state
    */
   get lastComputedValue(): Simplify<
     ComputedCoMapInstanceShape<Shape, ComputedShape>
   > &
     ComputedCoMap<Shape, ComputedShape> {
-    // Find when the computation was completed (oldest computed edit)
-    const oldestComputedEdit = this.getOldestComputedEdit();
-    if (!oldestComputedEdit) {
-      // console.log("no computed edit, this.coMap = ", this.coMap)
-      // Computation has never completed, return current state
+    const state = this.getComputationState();
+
+    if (!state) {
+      // Never started - return current state
       return this.coMap as any;
     }
 
-    // Use the oldest computed edit's madeAt as the snapshot time
-    // This is when the computation was valid
-    const snapshotTime = oldestComputedEdit.madeAt;
+    if (state.status === "computing") {
+      // Started but not finished - return base shape pinned to startedAt - 1
+      const startedAt = state.madeAt;
+      // Return a composite that has base props pinned, no computed props
+      return this.getBaseShapeAtTime(startedAt - 1) as any;
+    }
 
-    // Create a time-filtered view of the raw CoMap
-    const timeFilteredRaw = this.raw.atTime(snapshotTime);
+    // Completed - find the startedAt that corresponds to this finishedAt
+    const finishedAt = state.madeAt;
+    const startedAt = this.getStartTimeForFinish(finishedAt);
 
-    // Create a new instance with the time-filtered raw
-    const Constructor = this.coMap.constructor as new (options: {
-      fromRaw: RawCoMap;
-    }) => M;
-    const timeFilteredCoMap = new Constructor({ fromRaw: timeFilteredRaw });
+    if (!startedAt) {
+      // Shouldn't happen, but fallback to current state
+      return this.coMap as any;
+    }
 
-    // TODO: For nested CoValues, we'd also need to apply atTime() to them.
-    // This current implementation returns the time-filtered root CoMap,
-    // but nested CoValues accessed through it may still show current values.
-    // A complete solution would require wrapping property access to return
-    // time-filtered children as well.
+    // Build composite: base props from startedAt - 1, computed props from finishedAt
+    return this.getCompositeSnapshot(startedAt - 1, finishedAt);
+  }
 
-    return timeFilteredCoMap as any;
+  /**
+   * Build a composite snapshot with base props from one time and computed props from another.
+   *
+   * @param baseTime - Timestamp for base shape properties
+   * @param computedTime - Timestamp for computed shape properties
+   */
+  private getCompositeSnapshot(
+    baseTime: number,
+    computedTime: number,
+  ): Simplify<ComputedCoMapInstanceShape<Shape, ComputedShape>> &
+    ComputedCoMap<Shape, ComputedShape> {
+    const schema = (this.coMap.constructor as any)._computedCoMapSchema;
+    if (!schema) {
+      return this.coMap as any;
+    }
+
+    const def = schema.getDefinition();
+    const baseKeys = Object.keys(def.shape);
+    const computedKeys = Object.keys(schema.computedShape);
+
+    // Create time-filtered views
+    const baseFilteredRaw = this.raw.atTime(baseTime);
+    const computedFilteredRaw = this.raw.atTime(computedTime);
+
+    // Build the composite object
+    const result: Record<string, any> = {};
+
+    // Add base shape properties from baseTime
+    for (const key of baseKeys) {
+      const rawValue = baseFilteredRaw.get(key);
+      const currentValue = (this.coMap as any)[key];
+
+      if (currentValue?.$jazz?.id && typeof currentValue === "object") {
+        // TODO: Create time-pinned child CoValue
+        result[key] = currentValue;
+      } else {
+        result[key] = rawValue;
+      }
+    }
+
+    // Add computed shape properties from computedTime
+    for (const key of computedKeys) {
+      result[key] = computedFilteredRaw.get(key);
+    }
+
+    // Add $isComputed based on current state
+    Object.defineProperty(result, "$isComputed", {
+      get: () => this.coMap.$isComputed,
+      enumerable: true,
+    });
+
+    // Add $jazz API
+    Object.defineProperty(result, "$jazz", {
+      value: this,
+      enumerable: false,
+    });
+
+    return result as any;
   }
 
   /**
@@ -470,7 +320,276 @@ export class ComputedCoMapJazzApi<
     return super.subscribe(options, listener);
   }
 
+  /**
+   * Get the current computation state as a simple string.
+   * Returns "uncomputed" if never computed or if stale,
+   * "computing" if computation is in progress,
+   * "computed" if computation is complete and up-to-date.
+   */
+  get computationState(): "uncomputed" | "computing" | "computed" {
+    const state = this.getComputationState();
+
+    if (!state) {
+      return "uncomputed";
+    }
+
+    if (state.status === "computing") {
+      return "computing";
+    }
+
+    // state.status === "computed" - check if stale
+    const startedAt = this.getMostRecentStartTime();
+    if (!startedAt) {
+      return "uncomputed";
+    }
+
+    const latestBaseEditTime = this.getLatestBaseEditTime();
+    if (latestBaseEditTime !== null && latestBaseEditTime >= startedAt) {
+      return "uncomputed";
+    }
+
+    return "computed";
+  }
+
+  /**
+   * Get the current computation state with detailed info.
+   * Returns null if computation has never been started, otherwise returns
+   * the status and when it was set.
+   */
+  getComputationState(): {
+    status: "computing" | "computed";
+    madeAt: number;
+  } | null {
+    const edit = this.raw.lastEditAt("$internalComputationState");
+    if (!edit) {
+      return null;
+    }
+    const status = this.raw.get("$internalComputationState") as
+      | null
+      | "computing"
+      | "computed";
+    if (!status) return null;
+    return {
+      status,
+      madeAt: edit.at.getTime(),
+    };
+  }
+
+  /**
+   * Get the madeAt timestamp of the most recent "computing" state.
+   * This represents when the current/last computation started.
+   */
+  getMostRecentStartTime(): number | null {
+    // Iterate through all edits to find the most recent "computing"
+    // editsAt iterates in chronological order, so the last "computing" we see is the most recent
+    let mostRecentStartTime: number | null = null;
+    for (const edit of this.raw.editsAt("$internalComputationState")) {
+      if (edit.value === "computing") {
+        mostRecentStartTime = edit.at.getTime();
+      }
+    }
+    return mostRecentStartTime;
+  }
+
+  /**
+   * Get the madeAt timestamp of the most recent "computing" state that
+   * occurred before a given "computed" timestamp.
+   * This finds the start time that corresponds to a specific completion.
+   */
+  getStartTimeForFinish(finishedAt: number): number | null {
+    let lastStartTime: number | null = null;
+    for (const edit of this.raw.editsAt("$internalComputationState")) {
+      const editTime = edit.at.getTime();
+      if (editTime > finishedAt) {
+        break;
+      }
+      if (edit.value === "computing") {
+        lastStartTime = editTime;
+      }
+    }
+    return lastStartTime;
+  }
+
+  /**
+   * Get the latest madeAt timestamp among all base shape properties,
+   * including nested CoValues.
+   */
+  getLatestBaseEditTime(): number | null {
+    const schema = (this.coMap.constructor as any)._computedCoMapSchema;
+    if (!schema) return null;
+
+    const def = schema.getDefinition();
+    const baseKeys = Object.keys(def.shape);
+
+    // Track visited CoValues to prevent infinite recursion
+    const visited = new Set<string>();
+    visited.add(this.id);
+
+    let latestTime: number | null = null;
+
+    for (const key of baseKeys) {
+      const edit = this.raw.lastEditAt(key);
+      if (edit) {
+        const editTime = edit.at.getTime();
+        if (latestTime === null || editTime > latestTime) {
+          latestTime = editTime;
+        }
+      }
+
+      // Check if this property is a loaded child CoValue
+      const value = (this.coMap as any)[key];
+      if (value?.$jazz?.id && typeof value === "object") {
+        const childLatest = this.getLatestEditTimeRecursive(
+          value,
+          new Set(visited),
+        );
+        if (
+          childLatest !== null &&
+          (latestTime === null || childLatest > latestTime)
+        ) {
+          latestTime = childLatest;
+        }
+      }
+    }
+
+    return latestTime;
+  }
+
+  /**
+   * Helper to get the latest edit madeAt time for a CoValue and its children recursively.
+   */
+  private getLatestEditTimeRecursive(
+    coValue: any,
+    visitedSet: Set<string>,
+  ): number | null {
+    if (!coValue?.$jazz?.id) return null;
+
+    // Prevent infinite recursion
+    if (visitedSet.has(coValue.$jazz.id)) return null;
+    visitedSet.add(coValue.$jazz.id);
+
+    let latestTime: number | null = null;
+
+    // Check all properties of this CoValue
+    for (const key of Object.keys(coValue)) {
+      const edit = coValue.$jazz.raw.lastEditAt(key as string);
+      if (edit) {
+        const editTime = edit.at.getTime();
+        if (latestTime === null || editTime > latestTime) {
+          latestTime = editTime;
+        }
+
+        // If this property is a loaded CoValue, check its edits recursively
+        const value = coValue[key];
+        if (value?.$jazz?.id && typeof value === "object") {
+          const childLatest = this.getLatestEditTimeRecursive(
+            value,
+            visitedSet,
+          );
+          if (
+            childLatest !== null &&
+            (latestTime === null || childLatest > latestTime)
+          ) {
+            latestTime = childLatest;
+          }
+        }
+      }
+    }
+
+    return latestTime;
+  }
+
+  /**
+   * Mark computation as started and return a time-pinned snapshot of the base shape.
+   *
+   * This method waits for the next millisecond to ensure a clean temporal boundary,
+   * then sets $internalComputationState to "computing" and returns a time-pinned
+   * view of the CoMap with only base shape properties, pinned to the moment just
+   * before the computation started.
+   *
+   * The returned object includes `$jazz` so you can call `pinned.$jazz.finishComputation()`.
+   *
+   * The computation function should use this returned value to read base properties,
+   * ensuring it operates on a consistent snapshot.
+   */
+  async startComputation(): Promise<
+    ComputedCoMapBaseShape<Shape> & {
+      $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, M>;
+    }
+  > {
+    // Wait for the next millisecond to create a clean temporal boundary
+    const startTime = await waitForNextMs();
+
+    // Set the computation state
+    this.raw.set("$internalComputationState", "computing");
+
+    // Return a time-pinned view of the base shape, pinned to startTime - 1
+    // This includes all edits that happened before we started waiting
+    return this.getBaseShapeAtTime(startTime - 1);
+  }
+
+  /**
+   * Mark computation as finished. Sets the computed properties and
+   * updates $internalComputationState to "computed".
+   */
   finishComputation(init: CoMapSchemaInit<ComputedShape>): void {
-    this.applyDiff({ ...init /* $isComputed: true */ } as any);
+    // Set all computed properties
+    if (Object.keys(init).length > 0) {
+      this.applyDiff({ ...init } as any);
+    }
+    // Mark computation as complete
+    this.raw.set("$internalComputationState", "computed");
+  }
+
+  /**
+   * Get a time-pinned view of just the base shape properties.
+   * Computed properties are not included in the returned object.
+   * Includes `$jazz` API for calling `finishComputation()`.
+   *
+   * @param time - The timestamp to pin to (edits with madeAt <= time are included)
+   */
+  getBaseShapeAtTime(
+    time: number,
+  ): ComputedCoMapBaseShape<Shape> & {
+    $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, M>;
+  } {
+    const schema = (this.coMap.constructor as any)._computedCoMapSchema;
+    if (!schema) {
+      throw new Error("Cannot get base shape: schema not found");
+    }
+
+    const def = schema.getDefinition();
+    const baseKeys = Object.keys(def.shape);
+
+    // Create a time-filtered view of the raw CoMap
+    const timeFilteredRaw = this.raw.atTime(time);
+
+    // Build an object with only the base shape properties
+    const result: Record<string, any> = {};
+    for (const key of baseKeys) {
+      // Get the value from the time-filtered raw
+      const rawValue = timeFilteredRaw.get(key);
+
+      // If it's a CoValue reference, we need to load and pin the child too
+      // For now, we return the raw value; nested pinning is a TODO
+      const currentValue = (this.coMap as any)[key];
+      if (currentValue?.$jazz?.id && typeof currentValue === "object") {
+        // TODO: Create time-pinned child CoValue
+        // For now, return the current loaded child (not pinned)
+        result[key] = currentValue;
+      } else {
+        result[key] = rawValue;
+      }
+    }
+
+    // Add $jazz API so finishComputation can be called on the pinned object
+    Object.defineProperty(result, "$jazz", {
+      value: this,
+      enumerable: false,
+    });
+
+    return result as ComputedCoMapBaseShape<Shape> & {
+      $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, M>;
+    };
   }
 }
