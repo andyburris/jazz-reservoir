@@ -183,39 +183,60 @@ export class ComputedCoMapJazzApi<
    * This represents "what the computation saw" for base props and
    * "what the computation produced" for computed props.
    *
-   * If no computation has completed:
-   * - If computation is in progress: returns base shape pinned to startedAt - 1
-   * - If never started: returns current state
+   * If a computation is currently in progress, returns the previous completed computation.
+   * If no computation has ever completed, returns the current state.
    */
   get lastComputedValue(): Simplify<
     ComputedCoMapInstanceShape<Shape, ComputedShape>
   > &
     ComputedCoMap<Shape, ComputedShape> {
-    const state = this.getComputationState();
+    // Find the most recent completed computation
+    const lastCompletedComputation = this.getLastCompletedComputation();
 
-    if (!state) {
-      // Never started - return current state
+    if (!lastCompletedComputation) {
+      // No computation has ever completed - return current state
       return this.coMap as any;
     }
 
-    if (state.status === "computing") {
-      // Started but not finished - return base shape pinned to startedAt - 1
-      const startedAt = state.madeAt;
-      // Return a composite that has base props pinned, no computed props
-      return this.getBaseShapeAtTime(startedAt - 1) as any;
-    }
-
-    // Completed - find the startedAt that corresponds to this finishedAt
-    const finishedAt = state.madeAt;
-    const startedAt = this.getStartTimeForFinish(finishedAt);
-
-    if (!startedAt) {
-      // Shouldn't happen, but fallback to current state
-      return this.coMap as any;
-    }
+    const { startedAt, finishedAt } = lastCompletedComputation;
 
     // Build composite: base props from startedAt - 1, computed props from finishedAt
     return this.getCompositeSnapshot(startedAt - 1, finishedAt);
+  }
+
+  /**
+   * Find the most recent completed computation (start/finish pair).
+   * Returns null if no computation has ever completed.
+   */
+  private getLastCompletedComputation(): {
+    startedAt: number;
+    finishedAt: number;
+  } | null {
+    // Iterate through all edits to find start/finish pairs
+    // We want the most recent "computed" and its corresponding "computing"
+    let lastStartTime: number | null = null;
+    let lastFinishTime: number | null = null;
+    let pendingStartTime: number | null = null;
+
+    for (const edit of this.raw.editsAt("$internalComputationState")) {
+      const editTime = edit.at.getTime();
+
+      if (edit.value === "computing") {
+        // This is a start - remember it as pending
+        pendingStartTime = editTime;
+      } else if (edit.value === "computed" && pendingStartTime !== null) {
+        // This completes the pending computation
+        lastStartTime = pendingStartTime;
+        lastFinishTime = editTime;
+        pendingStartTime = null; // Reset for next potential pair
+      }
+    }
+
+    if (lastStartTime === null || lastFinishTime === null) {
+      return null;
+    }
+
+    return { startedAt: lastStartTime, finishedAt: lastFinishTime };
   }
 
   /**
@@ -251,8 +272,8 @@ export class ComputedCoMapJazzApi<
       const currentValue = (this.coMap as any)[key];
 
       if (currentValue?.$jazz?.id && typeof currentValue === "object") {
-        // TODO: Create time-pinned child CoValue
-        result[key] = currentValue;
+        // Create time-pinned child CoValue
+        result[key] = this.createTimePinnedCoValue(currentValue, baseTime);
       } else {
         result[key] = rawValue;
       }
@@ -263,9 +284,9 @@ export class ComputedCoMapJazzApi<
       result[key] = computedFilteredRaw.get(key);
     }
 
-    // Add $isComputed based on current state
+    // $isComputed always true in the composite
     Object.defineProperty(result, "$isComputed", {
-      get: () => this.coMap.$isComputed,
+      get: () => true,
       enumerable: true,
     });
 
@@ -546,11 +567,11 @@ export class ComputedCoMapJazzApi<
    * Computed properties are not included in the returned object.
    * Includes `$jazz` API for calling `finishComputation()`.
    *
+   * Child CoValues are also time-pinned to the same timestamp.
+   *
    * @param time - The timestamp to pin to (edits with madeAt <= time are included)
    */
-  getBaseShapeAtTime(
-    time: number,
-  ): ComputedCoMapBaseShape<Shape> & {
+  getBaseShapeAtTime(time: number): ComputedCoMapBaseShape<Shape> & {
     $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, M>;
   } {
     const schema = (this.coMap.constructor as any)._computedCoMapSchema;
@@ -571,12 +592,10 @@ export class ComputedCoMapJazzApi<
       const rawValue = timeFilteredRaw.get(key);
 
       // If it's a CoValue reference, we need to load and pin the child too
-      // For now, we return the raw value; nested pinning is a TODO
       const currentValue = (this.coMap as any)[key];
       if (currentValue?.$jazz?.id && typeof currentValue === "object") {
-        // TODO: Create time-pinned child CoValue
-        // For now, return the current loaded child (not pinned)
-        result[key] = currentValue;
+        // Create a time-pinned view of the child CoValue
+        result[key] = this.createTimePinnedCoValue(currentValue, time);
       } else {
         result[key] = rawValue;
       }
@@ -588,8 +607,64 @@ export class ComputedCoMapJazzApi<
       enumerable: false,
     });
 
+    // $isComputed always false for just the base shape
+    Object.defineProperty(result, "$isComputed", {
+      get: () => false,
+      enumerable: true,
+    });
+
     return result as ComputedCoMapBaseShape<Shape> & {
       $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, M>;
     };
+  }
+
+  /**
+   * Create a time-pinned view of a CoValue.
+   * The returned object has all properties pinned to the specified time,
+   * and nested CoValues are recursively pinned as well.
+   *
+   * @param coValue - The CoValue to create a time-pinned view of
+   * @param time - The timestamp to pin to
+   */
+  private createTimePinnedCoValue(coValue: any, time: number): any {
+    if (!coValue?.$jazz?.raw) {
+      return coValue;
+    }
+
+    // Create a time-filtered view of this CoValue's raw
+    const timeFilteredRaw = coValue.$jazz.raw.atTime(time);
+
+    // Get all keys from the CoValue
+    const keys = Object.keys(coValue).filter(
+      (k) => !k.startsWith("$") && k !== "constructor",
+    );
+
+    // Build a proxy-like object that returns time-filtered values
+    const result: Record<string, any> = {};
+
+    for (const key of keys) {
+      const rawValue = timeFilteredRaw.get(key);
+      const currentValue = coValue[key];
+
+      if (currentValue?.$jazz?.id && typeof currentValue === "object") {
+        // Recursively create time-pinned child
+        result[key] = this.createTimePinnedCoValue(currentValue, time);
+      } else {
+        result[key] = rawValue;
+      }
+    }
+
+    // Preserve $jazz API from the original CoValue (but with time-filtered raw)
+    // We create a wrapper that provides access to the time-filtered raw
+    const originalJazz = coValue.$jazz;
+    Object.defineProperty(result, "$jazz", {
+      value: {
+        ...originalJazz,
+        raw: timeFilteredRaw,
+      },
+      enumerable: false,
+    });
+
+    return result;
   }
 }

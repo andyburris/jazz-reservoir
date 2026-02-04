@@ -60,8 +60,8 @@ export class ComputedCoMapSchema<
     Owner,
     DefaultResolveQuery
   > {
-    // @ts-expect-error overriding shape
     return withComputationFunctionForSchema(
+      // @ts-expect-error overriding shape
       this,
       this.computedShape,
       computation,
