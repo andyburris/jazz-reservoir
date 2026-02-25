@@ -853,7 +853,7 @@ export class CoMapJazzApi<M extends CoMap> extends CoValueJazzApi<M> {
 
 export type CoKeys<Map extends object> = Exclude<
   keyof Map & string,
-  keyof CoMap
+  keyof CoMap | "$isComputed"
 >;
 
 /**
