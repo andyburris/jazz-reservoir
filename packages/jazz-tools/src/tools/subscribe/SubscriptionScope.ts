@@ -73,6 +73,7 @@ export class SubscriptionScope<D extends CoValue> {
   private subscription: CoValueCoreSubscription;
   private dirty = false;
   private resolve: RefsToResolve<any>;
+  private resolvedDependenciesMerged = false;
   private idsSubscribed = new Set<string>();
   private autoloaded = new Set<string>();
   private autoloadedKeys = new Set<string>();
@@ -333,6 +334,7 @@ export class SubscriptionScope<D extends CoValue> {
 
     if (this.value.type !== CoValueLoadingState.LOADED) {
       this.updateValue(createCoValue(this.schema, update, this));
+      this.mergeResolvedDependenciesQuery();
       this.loadChildren();
     } else {
       const hasChanged =
@@ -351,6 +353,39 @@ export class SubscriptionScope<D extends CoValue> {
 
     this.silenceUpdates = false;
     this.triggerUpdate();
+  }
+
+  /**
+   * If the loaded value is a ComputedCoMap with a resolvedDependenciesQuery,
+   * merge that query into this scope's resolve so that loadChildren() will
+   * deeply load the specified dependencies before emitting.
+   */
+  private mergeResolvedDependenciesQuery() {
+    if (this.resolvedDependenciesMerged) return;
+    if (this.value.type !== CoValueLoadingState.LOADED) return;
+
+    const value = this.value.value;
+    if (!Object.getPrototypeOf(value.$jazz).isComputed) return;
+
+    this.resolvedDependenciesMerged = true;
+
+    const schema = (value.constructor as any)._computedCoMapSchema;
+    const depsQuery = schema?.resolvedDependenciesQuery;
+
+    // If depsQuery is true (default) or not set, no merge needed —
+    // true means "resolve everything" which the existing resolve handles
+    if (!depsQuery || depsQuery === true) return;
+
+    // If the existing resolve is already true, it already resolves everything
+    if (this.resolve === true) return;
+
+    // Merge the depsQuery keys into the existing resolve
+    if (typeof this.resolve === "object" && this.resolve !== null) {
+      this.resolve = { ...this.resolve, ...depsQuery };
+    } else {
+      // resolve is false or some other non-object value
+      this.resolve = { ...depsQuery };
+    }
   }
 
   private computeChildErrors() {
@@ -679,8 +714,8 @@ export class SubscriptionScope<D extends CoValue> {
       ) {
         // console.log("triggerUpdate - starting computation for", this.value.value.$jazz.id, "current listener count =", this.subscribers.size);
         COMPUTATION_CACHE.startComputation(
-          this as unknown as SubscriptionScope<ComputedCoMap<any, any>>,
-          this.value.value as unknown as ComputedCoMap<any, any>,
+          this as unknown as SubscriptionScope<ComputedCoMap<any, any, any>>,
+          this.value.value as unknown as ComputedCoMap<any, any, any>,
         );
       }
     }
@@ -1136,8 +1171,8 @@ export class SubscriptionScope<D extends CoValue> {
       Object.getPrototypeOf(this.value.value.$jazz).isComputed
     ) {
       COMPUTATION_CACHE.removeComputationSubscription(
-        this as unknown as SubscriptionScope<ComputedCoMap<any, any>>,
-        this.value.value as unknown as ComputedCoMap<any, any>,
+        this as unknown as SubscriptionScope<ComputedCoMap<any, any, any>>,
+        this.value.value as unknown as ComputedCoMap<any, any, any>,
       );
     }
     // Clear subscriber change callbacks to prevent memory leaks

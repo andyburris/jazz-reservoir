@@ -56,7 +56,7 @@ export type InstanceOfSchema<S extends CoValueClass | AnyZodOrCoValueSchema> =
                 infer CatchAll
               >
             ? ComputedCoMapInstanceShape<Shape, ComputedShape, CatchAll> &
-                ComputedCoMap<Shape, ComputedShape>
+                ComputedCoMap<Shape, ComputedShape, any> // TODO: do we need to put DependenciesResolveQuery on CoreComputedCoMapSchema and use it here instead of any?
             : S extends CoreCoMapSchema<infer Shape, infer CatchAll>
               ? {
                   readonly [key in keyof Shape]: InstanceOrPrimitiveOfSchema<

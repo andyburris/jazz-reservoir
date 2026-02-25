@@ -1,6 +1,5 @@
 import { CoValueUniqueness, RawCoMap } from "cojson";
 import {
-  ComputedCoMapBaseShape,
   ComputedCoMapInstanceCoValuesMaybeLoaded,
   ComputedCoMapInstanceShape,
 } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
@@ -8,16 +7,22 @@ import { z } from "../implementation/zodSchema/zodReExport";
 import {
   Account,
   BranchDefinition,
+  CoList,
   CoMapSchemaInit,
   CoValueClass,
   Group,
+  isRefEncoded,
   parseCoValueCreateOptions,
   parseSubscribeRestArgs,
   RefsToResolve,
+  RefsToResolveForShape,
   RefsToResolveStrict,
   Resolved,
+  ResolvedFromShapeAndQuery,
   Simplify,
+  StaticResolved,
   SubscribeRestArgs,
+  TypeSym,
 } from "../internal";
 import { CoMap, CoMapInit_DEPRECATED, CoMapJazzApi } from "./coMap";
 
@@ -44,8 +49,14 @@ async function waitForNextMs(): Promise<number> {
 export class ComputedCoMap<
   Shape extends z.core.$ZodLooseShape,
   ComputedShape extends z.core.$ZodLooseShape,
+  ResolvedDependenciesQuery extends RefsToResolveForShape<Shape>,
 > extends CoMap {
-  declare $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, this>;
+  declare $jazz: ComputedCoMapJazzApi<
+    Shape,
+    ComputedShape,
+    this,
+    ResolvedDependenciesQuery
+  >;
 
   public get $isComputed(): boolean {
     // $isComputed is true when $internalComputationState is "computed" and
@@ -76,13 +87,17 @@ export class ComputedCoMap<
   constructor(options: { fromRaw: RawCoMap } | undefined) {
     const proxy = super(options) as unknown as ComputedCoMap<
       Shape,
-      ComputedShape
+      ComputedShape,
+      ResolvedDependenciesQuery
     >;
     if (options) {
       if ("fromRaw" in options) {
         Object.defineProperties(this, {
           $jazz: {
-            value: new ComputedCoMapJazzApi(proxy, () => options.fromRaw),
+            value: new ComputedCoMapJazzApi(
+              proxy as any,
+              () => options.fromRaw,
+            ),
             enumerable: false,
             configurable: true,
             writable: true,
@@ -166,11 +181,17 @@ export class ComputedCoMap<
 export class ComputedCoMapJazzApi<
   Shape extends z.core.$ZodLooseShape,
   ComputedShape extends z.core.$ZodLooseShape,
-  M extends ComputedCoMap<Shape, ComputedShape>,
+  M extends ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery>,
+  ResolvedDependenciesQuery extends RefsToResolveForShape<Shape>,
 > extends CoMapJazzApi<M> {
   declare isComputed: true;
   static {
     this.prototype["isComputed"] = true;
+  }
+
+  getResolvedDependenciesQuery(): ResolvedDependenciesQuery {
+    const schema = (this.coMap.constructor as any)._computedCoMapSchema;
+    return schema?.resolvedDependenciesQuery ?? true;
   }
 
   /**
@@ -189,7 +210,7 @@ export class ComputedCoMapJazzApi<
   get lastComputedValue(): Simplify<
     ComputedCoMapInstanceShape<Shape, ComputedShape>
   > &
-    ComputedCoMap<Shape, ComputedShape> {
+    ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery> {
     // Find the most recent completed computation
     const lastCompletedComputation = this.getLastCompletedComputation();
 
@@ -249,37 +270,23 @@ export class ComputedCoMapJazzApi<
     baseTime: number,
     computedTime: number,
   ): Simplify<ComputedCoMapInstanceShape<Shape, ComputedShape>> &
-    ComputedCoMap<Shape, ComputedShape> {
+    ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery> {
     const schema = (this.coMap.constructor as any)._computedCoMapSchema;
     if (!schema) {
       return this.coMap as any;
     }
 
-    const def = schema.getDefinition();
-    const baseKeys = Object.keys(def.shape);
     const computedKeys = Object.keys(schema.computedShape);
+    const resolveQuery = this.getResolvedDependenciesQuery();
 
-    // Create time-filtered views
-    const baseFilteredRaw = this.raw.atTime(baseTime);
-    const computedFilteredRaw = this.raw.atTime(computedTime);
+    // Get the base portion via getBaseShapeAtTime (uses resolveQuery)
+    const basePinned = this.getBaseShapeAtTime(baseTime, resolveQuery);
 
-    // Build the composite object
-    const result: Record<string, any> = {};
-
-    // Add base shape properties from baseTime
-    for (const key of baseKeys) {
-      const rawValue = baseFilteredRaw.get(key);
-      const currentValue = (this.coMap as any)[key];
-
-      if (currentValue?.$jazz?.id && typeof currentValue === "object") {
-        // Create time-pinned child CoValue
-        result[key] = this.createTimePinnedCoValue(currentValue, baseTime);
-      } else {
-        result[key] = rawValue;
-      }
-    }
+    // Build the composite object starting from the base
+    const result: Record<string, any> = { ...basePinned };
 
     // Add computed shape properties from computedTime
+    const computedFilteredRaw = this.raw.atTime(computedTime);
     for (const key of computedKeys) {
       result[key] = computedFilteredRaw.get(key);
     }
@@ -290,7 +297,7 @@ export class ComputedCoMapJazzApi<
       enumerable: true,
     });
 
-    // Add $jazz API
+    // Override $jazz to include the full API (not just { id })
     Object.defineProperty(result, "$jazz", {
       value: this,
       enumerable: false,
@@ -312,7 +319,7 @@ export class ComputedCoMapJazzApi<
     Map extends Simplify<
       ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape>
     > &
-      ComputedCoMap<Shape, ComputedShape>,
+      ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery>,
     const R extends RefsToResolve<Map> = true,
   >(
     listener: (value: Resolved<Map, R>, unsubscribe: () => void) => void,
@@ -321,7 +328,7 @@ export class ComputedCoMapJazzApi<
     Map extends Simplify<
       ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape>
     > &
-      ComputedCoMap<Shape, ComputedShape>,
+      ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery>,
     const R extends RefsToResolve<Map> = true,
   >(
     options: {
@@ -334,7 +341,7 @@ export class ComputedCoMapJazzApi<
     Map extends Simplify<
       ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape>
     > &
-      ComputedCoMap<Shape, ComputedShape>,
+      ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery>,
     const R extends RefsToResolve<Map>,
   >(...args: SubscribeRestArgs<Map, R>): () => void {
     const { options, listener } = parseSubscribeRestArgs(args);
@@ -438,42 +445,17 @@ export class ComputedCoMapJazzApi<
   getLatestBaseEditTime(): number | null {
     const schema = (this.coMap.constructor as any)._computedCoMapSchema;
     if (!schema) return null;
-
     const def = schema.getDefinition();
     const baseKeys = Object.keys(def.shape);
 
-    // Track visited CoValues to prevent infinite recursion
-    const visited = new Set<string>();
-    visited.add(this.id);
-
-    let latestTime: number | null = null;
-
-    for (const key of baseKeys) {
-      const edit = this.raw.lastEditAt(key);
-      if (edit) {
-        const editTime = edit.at.getTime();
-        if (latestTime === null || editTime > latestTime) {
-          latestTime = editTime;
-        }
-      }
-
-      // Check if this property is a loaded child CoValue
-      const value = (this.coMap as any)[key];
-      if (value?.$jazz?.id && typeof value === "object") {
-        const childLatest = this.getLatestEditTimeRecursive(
-          value,
-          new Set(visited),
-        );
-        if (
-          childLatest !== null &&
-          (latestTime === null || childLatest > latestTime)
-        ) {
-          latestTime = childLatest;
-        }
-      }
-    }
-
-    return latestTime;
+    const resolvedResolvedDependenciesQuery =
+      this.getResolvedDependenciesQuery();
+    return this.getLatestEditTimeRecursive(
+      this.coMap,
+      resolvedResolvedDependenciesQuery,
+      new Set<string>(),
+      new Set(baseKeys),
+    );
   }
 
   /**
@@ -481,9 +463,12 @@ export class ComputedCoMapJazzApi<
    */
   private getLatestEditTimeRecursive(
     coValue: any,
+    resolveQuery: RefsToResolveForShape<Shape>,
     visitedSet: Set<string>,
+    limitTopLevelKeys?: Set<string>,
   ): number | null {
-    if (!coValue?.$jazz?.id) return null;
+    if (!coValue?.$jazz?.id)
+      throw new Error("Expected a CoValue with $jazz.id");
 
     // Prevent infinite recursion
     if (visitedSet.has(coValue.$jazz.id)) return null;
@@ -491,28 +476,91 @@ export class ComputedCoMapJazzApi<
 
     let latestTime: number | null = null;
 
-    // Check all properties of this CoValue
+    if (
+      typeof resolveQuery === "object" &&
+      Object.keys(resolveQuery).length > 0
+    ) {
+      const coValueType = coValue[TypeSym];
+      if (
+        coValueType === "CoMap" ||
+        coValueType === "Account" ||
+        coValueType === "Group"
+      ) {
+        const map = coValue as unknown as CoMap;
+        const keys =
+          "$each" in resolveQuery
+            ? map.$jazz.raw.keys()
+            : Object.keys(resolveQuery);
+
+        for (const key of keys) {
+          if (key === "$onError") continue; // Skip $onError key if present
+
+          // @ts-expect-error
+          const childValue = map[key];
+          if (childValue === undefined)
+            throw new Error(
+              `Invariant violation: resolved dependency "${key}" is not loaded`,
+            );
+
+          // @ts-expect-error
+          const childQuery = resolveQuery[key] ?? resolveQuery.$each;
+
+          const time = this.getLatestEditTimeRecursive(
+            childValue,
+            childQuery,
+            visitedSet,
+          );
+          if (time !== null && (latestTime === null || time > latestTime)) {
+            latestTime = time;
+          }
+        }
+      } else if (coValue[TypeSym] === "CoList") {
+        const list = coValue as unknown as CoList;
+
+        const descriptor = list.$jazz.getItemsDescriptor();
+
+        if (descriptor && isRefEncoded(descriptor)) {
+          list.$jazz.raw.processNewTransactions();
+          const entries = list.$jazz.raw.entries();
+          const keys =
+            "$each" in resolveQuery
+              ? Object.keys(entries)
+              : Object.keys(resolveQuery);
+
+          for (const key of keys) {
+            if (key === "$onError") continue; // Skip $onError key if present
+
+            const childValue = list[Number(key)];
+            if (childValue === undefined)
+              throw new Error(
+                `Invariant violation: resolved dependency "${key}" is not loaded`,
+              );
+
+            // @ts-expect-error
+            const childQuery = resolveQuery[key] ?? resolveQuery.$each;
+
+            const time = this.getLatestEditTimeRecursive(
+              childValue,
+              childQuery,
+              visitedSet,
+            );
+            if (time !== null && (latestTime === null || time > latestTime)) {
+              latestTime = time;
+            }
+          }
+        }
+      } // TODO: handle CoFeed (type === "CoStream")
+    }
+
+    // Check all base properties of this CoValue
     for (const key of Object.keys(coValue)) {
+      if (limitTopLevelKeys && !limitTopLevelKeys.has(key)) continue; // Skip non-top-level properties if limitTopLevelKeys is provided
+
       const edit = coValue.$jazz.raw.lastEditAt(key as string);
       if (edit) {
         const editTime = edit.at.getTime();
         if (latestTime === null || editTime > latestTime) {
           latestTime = editTime;
-        }
-
-        // If this property is a loaded CoValue, check its edits recursively
-        const value = coValue[key];
-        if (value?.$jazz?.id && typeof value === "object") {
-          const childLatest = this.getLatestEditTimeRecursive(
-            value,
-            visitedSet,
-          );
-          if (
-            childLatest !== null &&
-            (latestTime === null || childLatest > latestTime)
-          ) {
-            latestTime = childLatest;
-          }
         }
       }
     }
@@ -534,8 +582,11 @@ export class ComputedCoMapJazzApi<
    * ensuring it operates on a consistent snapshot.
    */
   async startComputation(): Promise<
-    ComputedCoMapBaseShape<Shape> & {
-      $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, M>;
+    StaticResolved<Shape, ResolvedDependenciesQuery> & {
+      $jazz: {
+        id: string;
+        finishComputation: (init: CoMapSchemaInit<ComputedShape>) => void;
+      };
     }
   > {
     // Wait for the next millisecond to create a clean temporal boundary
@@ -545,15 +596,34 @@ export class ComputedCoMapJazzApi<
     this.raw.set("$internalComputationState", "computing");
 
     // Return a time-pinned view of the base shape, pinned to startTime - 1
-    // This includes all edits that happened before we started waiting
-    return this.getBaseShapeAtTime(startTime - 1);
+    const resolveQuery = this.getResolvedDependenciesQuery();
+    const timePinned = this.getBaseShapeAtTime(startTime - 1, resolveQuery);
+
+    // Attach finishComputation onto the $jazz object
+    (timePinned.$jazz as any).finishComputation = (
+      init: CoMapSchemaInit<ComputedShape>,
+    ) => {
+      this.finishComputation(init);
+    };
+
+    return timePinned as any;
+  }
+
+  startComputationUnstripped(): ResolvedFromShapeAndQuery<
+    Shape,
+    ResolvedDependenciesQuery
+  > {
+    throw new Error(
+      "ComputedCoMap.startComputationUnstripped() is not supported. Use startComputation() instead.",
+    );
   }
 
   /**
    * Mark computation as finished. Sets the computed properties and
    * updates $internalComputationState to "computed".
+   * Should only be called from the object returned by startComputation() to ensure proper timing.
    */
-  finishComputation(init: CoMapSchemaInit<ComputedShape>): void {
+  private finishComputation(init: CoMapSchemaInit<ComputedShape>): void {
     // Set all computed properties
     if (Object.keys(init).length > 0) {
       this.applyDiff({ ...init } as any);
@@ -571,9 +641,10 @@ export class ComputedCoMapJazzApi<
    *
    * @param time - The timestamp to pin to (edits with madeAt <= time are included)
    */
-  getBaseShapeAtTime(time: number): ComputedCoMapBaseShape<Shape> & {
-    $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, M>;
-  } {
+  private getBaseShapeAtTime(
+    time: number,
+    resolveQuery: RefsToResolveForShape<Shape>,
+  ): StaticResolved<Shape, ResolvedDependenciesQuery> {
     const schema = (this.coMap.constructor as any)._computedCoMapSchema;
     if (!schema) {
       throw new Error("Cannot get base shape: schema not found");
@@ -582,40 +653,26 @@ export class ComputedCoMapJazzApi<
     const def = schema.getDefinition();
     const baseKeys = Object.keys(def.shape);
 
-    // Create a time-filtered view of the raw CoMap
-    const timeFilteredRaw = this.raw.atTime(time);
+    const timePinned = this.createTimePinnedCoValue(
+      this.coMap,
+      time,
+      resolveQuery,
+    );
 
-    // Build an object with only the base shape properties
+    // Filter down to only base shape properties
     const result: Record<string, any> = {};
     for (const key of baseKeys) {
-      // Get the value from the time-filtered raw
-      const rawValue = timeFilteredRaw.get(key);
-
-      // If it's a CoValue reference, we need to load and pin the child too
-      const currentValue = (this.coMap as any)[key];
-      if (currentValue?.$jazz?.id && typeof currentValue === "object") {
-        // Create a time-pinned view of the child CoValue
-        result[key] = this.createTimePinnedCoValue(currentValue, time);
-      } else {
-        result[key] = rawValue;
-      }
+      // @ts-expect-error - indexing with base shape keys
+      result[key] = timePinned[key];
     }
 
-    // Add $jazz API so finishComputation can be called on the pinned object
+    // Attach minimal $jazz with just the id
     Object.defineProperty(result, "$jazz", {
-      value: this,
+      value: { id: this.coMap.$jazz.id },
       enumerable: false,
     });
 
-    // $isComputed always false for just the base shape
-    Object.defineProperty(result, "$isComputed", {
-      get: () => false,
-      enumerable: true,
-    });
-
-    return result as ComputedCoMapBaseShape<Shape> & {
-      $jazz: ComputedCoMapJazzApi<Shape, ComputedShape, M>;
-    };
+    return result as any;
   }
 
   /**
@@ -626,7 +683,11 @@ export class ComputedCoMapJazzApi<
    * @param coValue - The CoValue to create a time-pinned view of
    * @param time - The timestamp to pin to
    */
-  private createTimePinnedCoValue(coValue: any, time: number): any {
+  private createTimePinnedCoValue<PinnedShape extends z.core.$ZodLooseShape>(
+    coValue: any,
+    time: number,
+    resolveQuery: RefsToResolveForShape<PinnedShape>,
+  ): StaticResolved<PinnedShape, RefsToResolveForShape<PinnedShape>> {
     if (!coValue?.$jazz?.raw) {
       return coValue;
     }
@@ -634,37 +695,88 @@ export class ComputedCoMapJazzApi<
     // Create a time-filtered view of this CoValue's raw
     const timeFilteredRaw = coValue.$jazz.raw.atTime(time);
 
-    // Get all keys from the CoValue
+    // Build a plain object with all own properties as raw time-pinned values
+    const result: Record<string, any> & { $jazz: { id: string } } = {
+      $jazz: { id: coValue.$jazz.id },
+    };
+
     const keys = Object.keys(coValue).filter(
       (k) => !k.startsWith("$") && k !== "constructor",
     );
 
-    // Build a proxy-like object that returns time-filtered values
-    const result: Record<string, any> = {};
-
     for (const key of keys) {
-      const rawValue = timeFilteredRaw.get(key);
-      const currentValue = coValue[key];
+      result[key] = timeFilteredRaw.get(key);
+    }
 
-      if (currentValue?.$jazz?.id && typeof currentValue === "object") {
-        // Recursively create time-pinned child
-        result[key] = this.createTimePinnedCoValue(currentValue, time);
-      } else {
-        result[key] = rawValue;
+    // Recursively pin children referenced in the resolve query
+    if (
+      typeof resolveQuery === "object" &&
+      Object.keys(resolveQuery).length > 0
+    ) {
+      const coValueType = coValue[TypeSym];
+      if (
+        coValueType === "CoMap" ||
+        coValueType === "Account" ||
+        coValueType === "Group"
+      ) {
+        const queryKeys =
+          "$each" in resolveQuery
+            ? Object.keys(coValue).filter((k) => !k.startsWith("$"))
+            : Object.keys(resolveQuery);
+
+        for (const key of queryKeys) {
+          if (key === "$onError") continue;
+
+          const childValue = (coValue as any)[key];
+          // @ts-expect-error - query key access
+          const childQuery = resolveQuery[key] ?? resolveQuery.$each;
+
+          if (childValue?.$jazz?.id) {
+            result[key] = this.createTimePinnedCoValue(
+              childValue,
+              time,
+              childQuery,
+            );
+          } else if (childValue === undefined) {
+            // Child not loaded — create a dummy with just the id
+            const rawRef = timeFilteredRaw.get(key);
+            result[key] = { $jazz: { id: rawRef } };
+          }
+        }
+      } else if (coValue[TypeSym] === "CoList") {
+        const list = coValue as unknown as CoList;
+        const descriptor = list.$jazz.getItemsDescriptor();
+
+        if (descriptor && isRefEncoded(descriptor)) {
+          list.$jazz.raw.processNewTransactions();
+          const entries = list.$jazz.raw.entries();
+          const queryKeys =
+            "$each" in resolveQuery
+              ? Object.keys(entries)
+              : Object.keys(resolveQuery);
+
+          for (const key of queryKeys) {
+            if (key === "$onError") continue;
+
+            const childValue = list[Number(key)];
+            // @ts-expect-error - query key access
+            const childQuery = resolveQuery[key] ?? resolveQuery.$each;
+
+            if (childValue?.$jazz?.id) {
+              result[key] = this.createTimePinnedCoValue(
+                childValue,
+                time,
+                childQuery,
+              );
+            } else if (childValue === undefined) {
+              const rawRef = entries[Number(key)];
+              result[key] = { $jazz: { id: rawRef } };
+            }
+          }
+        }
       }
     }
 
-    // Preserve $jazz API from the original CoValue (but with time-filtered raw)
-    // We create a wrapper that provides access to the time-filtered raw
-    const originalJazz = coValue.$jazz;
-    Object.defineProperty(result, "$jazz", {
-      value: {
-        ...originalJazz,
-        raw: timeFilteredRaw,
-      },
-      enumerable: false,
-    });
-
-    return result;
+    return result as any;
   }
 }

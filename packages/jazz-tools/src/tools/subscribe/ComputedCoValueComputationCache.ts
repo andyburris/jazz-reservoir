@@ -9,12 +9,12 @@ import { get } from "svelte/store";
 class ComputedCoValueComputationCache {
   nodes = new WeakMap<
     LocalNode,
-    Map<ID<ComputedCoMap<any, any>>, ComputedCoValueComputationState>
+    Map<ID<ComputedCoMap<any, any, any>>, ComputedCoValueComputationState>
   >();
 
   startComputation(
-    subscriptionScope: SubscriptionScope<ComputedCoMap<any, any>>,
-    coValue: ComputedCoMap<any, any>,
+    subscriptionScope: SubscriptionScope<ComputedCoMap<any, any, any>>,
+    coValue: ComputedCoMap<any, any, any>,
   ) {
     const computation = getComputationFromCoValue(coValue);
 
@@ -28,7 +28,10 @@ class ComputedCoValueComputationCache {
       this.nodes,
       subscriptionScope.node,
       () =>
-        new Map<ID<ComputedCoMap<any, any>>, ComputedCoValueComputationState>(),
+        new Map<
+          ID<ComputedCoMap<any, any, any>>,
+          ComputedCoValueComputationState
+        >(),
     );
     const currentSubscriptionState = getOrCreate(
       nodeCache,
@@ -40,8 +43,8 @@ class ComputedCoValueComputationCache {
   }
 
   removeComputationSubscription(
-    subscriptionScope: SubscriptionScope<ComputedCoMap<any, any>>,
-    coValue: ComputedCoMap<any, any>,
+    subscriptionScope: SubscriptionScope<ComputedCoMap<any, any, any>>,
+    coValue: ComputedCoMap<any, any, any>,
   ) {
     const nodeCache = this.nodes.get(subscriptionScope.node);
     if (!nodeCache) return;
@@ -66,17 +69,17 @@ class ComputedCoValueComputationCache {
 
 class ComputedCoValueComputationState {
   constructor(
-    private computation: (coMap: ComputedCoMap<any, any>) => {
+    private computation: (coMap: ComputedCoMap<any, any, any>) => {
       stopListening: () => void;
     },
   ) {}
   private currentComputationKey: SubscriptionScope<
-    ComputedCoMap<any, any>
+    ComputedCoMap<any, any, any>
   > | null = null;
   private currentComputation: { stopListening: () => void } | null = null;
   private pendingSubscribers = new Map<
-    SubscriptionScope<ComputedCoMap<any, any>>,
-    ComputedCoMap<any, any>
+    SubscriptionScope<ComputedCoMap<any, any, any>>,
+    ComputedCoMap<any, any, any>
   >();
 
   startNextComputation(): void {
@@ -88,7 +91,7 @@ class ComputedCoValueComputationState {
 
     const nextComputationId = this.pendingSubscribers.keys().next().value;
     if (nextComputationId) {
-      // console.log("Starting computation for ComputedCoMap<any, any>, pending subscribers =", this.pendingSubscribers.size);
+      // console.log("Starting computation for ComputedCoMap<any, any, any>, pending subscribers =", this.pendingSubscribers.size);
       const coValue = this.pendingSubscribers.get(nextComputationId)!;
       this.pendingSubscribers.delete(nextComputationId);
       this.currentComputationKey = nextComputationId;
@@ -99,8 +102,8 @@ class ComputedCoValueComputationState {
   }
 
   addSubscriber(
-    subscriptionScope: SubscriptionScope<ComputedCoMap<any, any>>,
-    coValue: ComputedCoMap<any, any>,
+    subscriptionScope: SubscriptionScope<ComputedCoMap<any, any, any>>,
+    coValue: ComputedCoMap<any, any, any>,
   ) {
     // console.log(
     //     "addSubscriber called, this.pendingSubscribers =", this.pendingSubscribers.size,
@@ -122,7 +125,7 @@ class ComputedCoValueComputationState {
   }
 
   removeSubscriber(
-    subscriptionScope: SubscriptionScope<ComputedCoMap<any, any>>,
+    subscriptionScope: SubscriptionScope<ComputedCoMap<any, any, any>>,
   ): void {
     // console.log(
     //     "removeSubscriber called, this.pendingSubscribers =", this.pendingSubscribers.size,
@@ -143,9 +146,9 @@ class ComputedCoValueComputationState {
 }
 
 function getComputationFromCoValue(
-  coValue: ComputedCoMap<any, any>,
+  coValue: ComputedCoMap<any, any, any>,
 ):
-  | ((coMap: ComputedCoMap<any, any>) => { stopListening: () => void })
+  | ((coMap: ComputedCoMap<any, any, any>) => { stopListening: () => void })
   | undefined {
   const schema = (coValue.constructor as any)._computedCoMapSchema;
   if (schema === undefined) {

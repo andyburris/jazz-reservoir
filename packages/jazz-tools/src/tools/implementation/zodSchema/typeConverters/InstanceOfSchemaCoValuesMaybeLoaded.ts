@@ -1,3 +1,4 @@
+import { ComputedCoMap } from "../../../coValues/computedCoMap.js";
 import {
   Account,
   AnyZodOrCoValueSchema,
@@ -5,8 +6,6 @@ import {
   CoList,
   CoMap,
   CoPlainText,
-  CoRichText,
-  CoValueClass,
   CoreAccountSchema,
   CoreCoDiscriminatedUnionSchema,
   CoreCoFeedSchema,
@@ -14,24 +13,25 @@ import {
   CoreCoMapSchema,
   CoreCoRecordSchema,
   CoreCoVectorSchema,
+  CoRichText,
+  CoValueClass,
   CoVector,
   FileStream,
   Group,
   MaybeLoaded,
 } from "../../../internal.js";
-import { CoreCoOptionalSchema } from "../schemaTypes/CoOptionalSchema.js";
-import { CoreCoValueSchema } from "../schemaTypes/CoValueSchema.js";
-import { CoreFileStreamSchema } from "../schemaTypes/FileStreamSchema.js";
-import { CorePlainTextSchema } from "../schemaTypes/PlainTextSchema.js";
-import { CoreRichTextSchema } from "../schemaTypes/RichTextSchema.js";
-import { CoreGroupSchema } from "../schemaTypes/GroupSchema.js";
-import { z } from "../zodReExport.js";
-import { InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded } from "./InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded.js";
 import {
   ComputedCoMapInstanceCoValuesMaybeLoaded,
   CoreComputedCoMapSchema,
 } from "../schemaTypes/ComputedCoMapSchema.js";
-import { ComputedCoMap } from "../../../coValues/computedCoMap.js";
+import { CoreCoOptionalSchema } from "../schemaTypes/CoOptionalSchema.js";
+import { CoreCoValueSchema } from "../schemaTypes/CoValueSchema.js";
+import { CoreFileStreamSchema } from "../schemaTypes/FileStreamSchema.js";
+import { CoreGroupSchema } from "../schemaTypes/GroupSchema.js";
+import { CorePlainTextSchema } from "../schemaTypes/PlainTextSchema.js";
+import { CoreRichTextSchema } from "../schemaTypes/RichTextSchema.js";
+import { z } from "../zodReExport.js";
+import { InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded } from "./InstanceOrPrimitiveOfSchemaCoValuesMaybeLoaded.js";
 
 /**
  * A loaded CoValue whose references may or may not be loaded.
@@ -63,7 +63,7 @@ export type InstanceOfSchemaCoValuesMaybeLoaded<
             >
           ? MaybeLoaded<
               ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, ComputedShape> &
-                ComputedCoMap<Shape, ComputedShape>
+                ComputedCoMap<Shape, ComputedShape, any> // TODO: do we need to put DependenciesResolveQuery on CoreComputedCoMapSchema and use it here instead of any?
             >
           : S extends CoreCoMapSchema<infer Shape, infer CatchAll>
             ? MaybeLoaded<

@@ -9,6 +9,7 @@ const Parent = co
     child: Child,
   })
   .withComputed({ wordCount: z.number() })
+  .withResolvedDependencies({ child: true })
   .withComputation((self) => {
     const stopListening = self.$jazz.subscribe(
       { resolve: { child: true } },
@@ -23,11 +24,24 @@ const Parent = co
         // );
         if (resolved.$jazz.computationState === "uncomputed") {
           const pinned = await resolved.$jazz.startComputation();
+
+          const dependenciesQuery =
+            resolved.$jazz.getResolvedDependenciesQuery();
+
+          // @ts-expect-error the pinned children should be a plain object, not a full CoValue.
+          pinned.$type$;
+
+          // @ts-expect-error all the pinned children should be plain objects, not full CoValues.
+          pinned.child.$type$;
+
           const count = pinned.child.text
             .trim()
             .split(/\s+/)
             .filter((w) => w.length > 0).length;
           pinned.$jazz.finishComputation({ wordCount: count });
+
+          // // @ts-expect-error can't finishComputation on the original object, must use the pinned version
+          // resolved.$jazz.finishComputation({ wordCount: count });
         }
       },
     );

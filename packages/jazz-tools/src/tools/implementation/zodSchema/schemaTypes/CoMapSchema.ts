@@ -37,8 +37,8 @@ import { CoreCoValueSchema, CoreResolveQuery } from "./CoValueSchema.js";
 import {
   ComputedCoMapInstanceCoValuesMaybeLoaded,
   ComputedCoMapSchema,
-  withComputedShapeForSchema,
   withComputationFunctionForSchema,
+  withComputedShapeForSchema,
 } from "./ComputedCoMapSchema.js";
 
 type CoMapSchemaInstance<Shape extends z.core.$ZodLooseShape> = Simplify<
@@ -422,7 +422,7 @@ export class CoMapSchema<
     computation: (
       self: Resolved<
         Simplify<ComputedCoMapInstanceCoValuesMaybeLoaded<Shape, {}>> &
-          ComputedCoMap<Shape, {}>,
+          ComputedCoMap<Shape, {}, true>,
         true
       >,
     ) => { stopListening: () => void },

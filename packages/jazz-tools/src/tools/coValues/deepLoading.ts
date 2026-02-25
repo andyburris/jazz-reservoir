@@ -1,8 +1,16 @@
 import { SessionID } from "cojson";
-import { CoValueLoadingState, ItemsSym, TypeSym } from "../internal.js";
+import { $ZodLooseShape } from "zod/v4/core";
+import { ComputedCoMapInstanceCoValuesMaybeLoaded } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema.js";
+import {
+  CoMapInstanceCoValuesMaybeLoaded,
+  CoValueLoadingState,
+  ItemsSym,
+  Simplify,
+  TypeSym,
+} from "../internal.js";
 import { type Account } from "./account.js";
 import { CoFeedEntry } from "./coFeed.js";
-import { type CoKeys } from "./coMap.js";
+import { CoMap, type CoKeys } from "./coMap.js";
 import { type CoValue, type ID } from "./interfaces.js";
 
 /**
@@ -98,6 +106,29 @@ export type AsLoaded<T> = Exclude<T, NotLoaded<T>>;
  */
 type OnError = { $onError?: "catch" };
 
+/**
+ * For ComputedCoMap unions (discriminated on $isComputed), extracts ALL keys
+ * including computed keys (from the $isComputed: true branch).
+ * For non-union types, falls back to CoKeys<V>.
+ */
+type CoMapResolveKeys<V extends object> = V extends { $isComputed: boolean }
+  ? CoKeys<Extract<V, { $isComputed: true }>>
+  : CoKeys<V>;
+
+/**
+ * For ComputedCoMap unions, looks up a key's value type from the $isComputed: true branch
+ * (which has all keys). For non-union types, just uses V[Key] directly.
+ */
+type CoMapResolveValue<V, Key extends string> = V extends {
+  $isComputed: boolean;
+}
+  ? Key extends keyof Extract<V, { $isComputed: true }>
+    ? Extract<V, { $isComputed: true }>[Key]
+    : never
+  : Key extends keyof V
+    ? V[Key]
+    : never;
+
 export type RefsToResolve<
   V,
   DepthLimit extends number = 10,
@@ -124,10 +155,12 @@ export type RefsToResolve<
           V extends { [TypeSym]: "CoMap" | "Group" | "Account" }
           ?
               | ({
-                  [Key in CoKeys<V> as LoadedAndRequired<V[Key]> extends CoValue
+                  [Key in CoMapResolveKeys<V> as LoadedAndRequired<
+                    CoMapResolveValue<V, Key>
+                  > extends CoValue
                     ? Key
                     : never]?: RefsToResolve<
-                    LoadedAndRequired<V[Key]>,
+                    LoadedAndRequired<CoMapResolveValue<V, Key>>,
                     DepthLimit,
                     [0, ...CurrentDepth]
                   >;
@@ -161,6 +194,25 @@ export type RefsToResolve<
 
 export type RefsToResolveStrict<T, V> = [V] extends [RefsToResolve<T>]
   ? RefsToResolve<T>
+  : V;
+
+/**
+ * Distributive helper: extracts all valid object keys from the RefsToResolve union.
+ * Since RefsToResolve is `boolean | { validKey?: ... }`, this uses a distributive
+ * conditional to extract keys from each object member separately.
+ */
+type DistributeKeyof<T> = T extends Record<string, any> ? keyof T : never;
+export type RefsToResolveObjectKeys<T> = DistributeKeyof<RefsToResolve<T>>;
+
+/**
+ * Like RefsToResolveStrict, but additionally rejects excess keys by mapping them to `never`.
+ * Only use in contexts where V is always a concrete (non-generic) type, e.g. withResolvedDependencies.
+ * In generic contexts, use RefsToResolveStrict instead (which doesn't do excess key checking).
+ */
+export type RefsToResolveExact<T, V> = [V] extends [RefsToResolve<T>]
+  ? [V] extends [boolean]
+    ? RefsToResolve<T>
+    : V & { [K in Exclude<keyof V, RefsToResolveObjectKeys<T>>]: never }
   : V;
 
 export type Resolved<
@@ -293,3 +345,73 @@ export type DeeplyLoaded<
                 ]
               ? V
               : never;
+// takes ResolvedFromShapeAndQuery and converts all CoValue instances to their static versions with the full $jazz replaced with just $jazz: { id: string }
+// export type StaticResolved<
+//   Shape extends $ZodLooseShape,
+//   ResolveQuery extends RefsToResolveForShape<Shape>,
+// > = {
+//   [Key in keyof ResolvedFromShapeAndQuery<Shape, ResolveQuery>]: ResolvedFromShapeAndQuery<Shape, ResolveQuery>[Key] extends CoValue
+//     ? {
+//         $jazz: { id: string };
+//       } & Untag<ResolvedFromShapeAndQuery<Shape, ResolveQuery>[Key], CoMap>
+//     : ResolvedFromShapeAndQuery<Shape, ResolveQuery>[Key];
+// } & { $jazz: { id: string } };
+
+type Untag<T, Tag> = T extends infer R & Tag ? R : never;
+
+export type StaticResolved<
+  Shape extends $ZodLooseShape,
+  ResolveQuery extends RefsToResolveForShape<Shape>,
+  _Resolved = ResolvedFromShapeAndQuery<Shape, ResolveQuery>,
+> = // StripCoMap<_Resolved>;
+// StripCoMap<{ [Key in keyof _Resolved]: _Resolved[Key] }>;
+StripCoMap<{
+  [Key in keyof _Resolved]: _Resolved[Key] extends CoValue
+    ? StaticResolvedValue<_Resolved[Key]>
+    : _Resolved[Key];
+}>;
+
+type StaticResolvedValue<T> = T extends CoValue
+  ? StripCoMap<{
+      [Key in keyof Omit<T, keyof CoValue>]: Omit<
+        T,
+        keyof CoValue
+      >[Key] extends CoValue
+        ? StaticResolvedValue<Omit<T, keyof CoValue>[Key]>
+        : Omit<T, keyof CoValue>[Key];
+    }>
+  : T;
+
+// type StripCoMap<T> = Untag<T, CoMap> & { $jazz: { id: string } };
+type StripCoMap<T> = Omit<T, keyof CoValue> & { $jazz: { id: string } };
+
+export type RefsToResolveForComputedShapes<
+  BaseShape extends $ZodLooseShape,
+  ComputedShape extends $ZodLooseShape,
+> =
+  | RefsToResolve<
+      Simplify<
+        ComputedCoMapInstanceCoValuesMaybeLoaded<BaseShape, ComputedShape>
+      >
+    >
+  | undefined;
+export type RefsToResolveForShape<Shape extends $ZodLooseShape> =
+  | RefsToResolve<Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & CoMap>
+  | undefined;
+
+// type ResolvedFromComputedShapeAndQuery<
+//   BaseShape extends $ZodLooseShape,
+//   ComputedShape extends $ZodLooseShape,
+//   ResolveQuery extends RefsToResolveForShape<BaseShape, ComputedShape>,
+// > = Resolved<
+//   Simplify<ComputedCoMapInstanceCoValuesMaybeLoaded<BaseShape, ComputedShape>> & ComputedCoMap<BaseShape, ComputedShape, ResolveQuery>,
+//   ResolveQuery
+// >;
+
+export type ResolvedFromShapeAndQuery<
+  Shape extends $ZodLooseShape,
+  ResolveQuery extends RefsToResolveForShape<Shape>,
+> = Resolved<
+  Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & CoMap,
+  ResolveQuery
+>;
