@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { co, z } from "../exports";
+import { SnapshotCoValue } from "../internal";
 import { ComputedCoMapInstanceShape } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
 import { createJazzTestAccount, setupJazzTestSync } from "../testing";
 
@@ -24,16 +25,6 @@ const Parent = co
         // );
         if (resolved.$jazz.computationState === "uncomputed") {
           const pinned = await resolved.$jazz.startComputation();
-          const unstripped = await resolved.$jazz.startComputationUnstripped();
-
-          const dependenciesQuery =
-            resolved.$jazz.getResolvedDependenciesQuery();
-
-          // @ts-expect-error the pinned children should be a plain object, not a full CoValue.
-          pinned.$type$;
-
-          // @ts-expect-error all the pinned children should be plain objects, not full CoValues.
-          pinned.child.$type$;
 
           const count = pinned.child.text
             .trim()
@@ -55,6 +46,7 @@ const Parent = co
 const Grandparent = co.map({
   parent: Parent,
 });
+const ParentList = co.list(Parent);
 
 describe("ComputedCoMap wordCount", () => {
   beforeEach(async () => {
@@ -224,6 +216,209 @@ describe("ComputedCoMap wordCount", () => {
         }
       });
     });
+  });
+});
+
+// ====================================================================
+// Type-only tests
+// ====================================================================
+
+describe("withResolvedDependencies type validation", () => {
+  test("rejects non-existent keys", () => {
+    co.map({ child: Child })
+      .withComputed({ wordCount: z.number() })
+      // @ts-expect-error 'nonExistent' is not a key on the schema
+      .withResolvedDependencies({ nonExistent: true });
+  });
+
+  test("rejects primitive keys (only CoValue refs should be queryable)", () => {
+    co.map({ child: Child, name: z.string() })
+      .withComputed({ wordCount: z.number() })
+      // @ts-expect-error 'name' is a primitive (string), not a CoValue ref
+      .withResolvedDependencies({ name: true });
+  });
+
+  test("accepts valid CoValue ref keys", () => {
+    // This should NOT error — child is a CoValue ref
+    co.map({ child: Child })
+      .withComputed({ wordCount: z.number() })
+      .withResolvedDependencies({ child: true });
+  });
+
+  // TODO: fix — nested sub-query excess key checking not yet implemented
+  // test("rejects invalid nested sub-queries", () => {
+  //   co.map({ child: Child })
+  //     .withComputed({ wordCount: z.number() })
+  //     // @ts-expect-error 'nonExistent' is not a key on Child
+  //     .withResolvedDependencies({ child: { nonExistent: true } });
+  // });
+
+  // TODO: fix — valid nested sub-query currently errors when it shouldn't
+  // test("accepts valid nested sub-queries", () => {
+  //   const ChildWithRef = co.map({ grandchild: co.map({ value: z.number() }), label: z.string() });
+  //   // ChildWithRef has a 'grandchild' CoValue ref — this should work
+  //   co.map({ child: ChildWithRef })
+  //     .withComputed({ total: z.number() })
+  //     .withResolvedDependencies({ child: { grandchild: true } });
+  // });
+});
+
+describe("startComputation types", () => {
+  test("queried children are deeply resolved, non-queried are shallow", () => {
+    co.map({ child: Child, other: Child })
+      .withComputed({ wordCount: z.number() })
+      .withResolvedDependencies({ child: true })
+      .withComputation((self) => {
+        const stopListening = self.$jazz.subscribe(async (resolved) => {
+          if (resolved.$jazz.computationState === "uncomputed") {
+            const pinned = await resolved.$jazz.startComputation();
+
+            // 'child' IS in the query — should be deeply accessible
+            pinned.child.text;
+
+            // 'other' should still exist as a shallow object (like MaybeLoaded)
+            pinned.other.$jazz.id;
+
+            // @ts-expect-error 'other' is NOT in the query — its children should NOT be accessible
+            pinned.other.text;
+
+            pinned.$jazz.finishComputation({ wordCount: 0 });
+          }
+        });
+        return { stopListening: () => stopListening() };
+      });
+  });
+
+  test("default query (no withResolvedDependencies) makes children shallow", () => {
+    co.map({ child: Child, other: Child })
+      .withComputed({ wordCount: z.number() })
+      // No withResolvedDependencies — defaults to true
+      .withComputation((self) => {
+        const stopListening = self.$jazz.subscribe(async (resolved) => {
+          if (resolved.$jazz.computationState === "uncomputed") {
+            const pinned = await resolved.$jazz.startComputation();
+
+            // @ts-expect-error with default true query, children should only have $jazz.id, not their own children
+            pinned.child.text;
+            pinned.child.$jazz.id;
+
+            // @ts-expect-error with default true query, children should only have $jazz.id, not their own children
+            pinned.other.text;
+            pinned.other.$jazz.id;
+
+            pinned.$jazz.finishComputation({ wordCount: 0 });
+          }
+        });
+        return { stopListening: () => stopListening() };
+      });
+  });
+
+  test("queried children are plain objects, not full CoValues", () => {
+    co.map({ child: Child })
+      .withComputed({ wordCount: z.number() })
+      .withResolvedDependencies({ child: true })
+      .withComputation((self) => {
+        const stopListening = self.$jazz.subscribe(async (resolved) => {
+          if (resolved.$jazz.computationState === "uncomputed") {
+            const pinned = await resolved.$jazz.startComputation();
+
+            // Should be able to access the text as a string
+            const text: string = pinned.child.text;
+
+            // @ts-expect-error pinned children should be plain objects, no $type$
+            pinned.child.$type$;
+
+            // Should have $jazz.id but it should be a string, not a full $jazz API
+            pinned.child.$jazz.id;
+
+            // @ts-expect-error pinned children should not have subscribe
+            pinned.child.$jazz.subscribe;
+
+            pinned.$jazz.finishComputation({ wordCount: 0 });
+          }
+        });
+        return { stopListening: () => stopListening() };
+      });
+  });
+
+  test("non-queried children are shallow plain objects", () => {
+    co.map({ child: Child, other: Child })
+      .withComputed({ wordCount: z.number() })
+      .withResolvedDependencies({ child: true })
+      .withComputation((self) => {
+        const stopListening = self.$jazz.subscribe(async (resolved) => {
+          if (resolved.$jazz.computationState === "uncomputed") {
+            const pinned = await resolved.$jazz.startComputation();
+
+            // non-queried 'other' should have $jazz.id
+            pinned.other.$jazz.id;
+
+            // @ts-expect-error non-queried 'other' should NOT have its children accessible
+            pinned.other.text;
+
+            // @ts-expect-error non-queried 'other' should not have $type$ either
+            pinned.other.$type$;
+
+            // @ts-expect-error non-queried 'other' should not have subscribe
+            pinned.other.$jazz.subscribe;
+
+            pinned.$jazz.finishComputation({ wordCount: 0 });
+          }
+        });
+        return { stopListening: () => stopListening() };
+      });
+  });
+});
+
+describe("CoList types in computations", () => {
+  test("fully resolved list items are accessible", () => {
+    co.map({ children: co.list(Child) })
+      .withComputed({ wordCount: z.number() })
+      .withResolvedDependencies({ children: { $each: true } })
+      .withComputation((self) => {
+        const stopListening = self.$jazz.subscribe(async (resolved) => {
+          if (resolved.$jazz.computationState === "uncomputed") {
+            const pinned = await resolved.$jazz.startComputation();
+
+            pinned.children[0]?.text;
+            pinned.children[0]?.$jazz.id;
+
+            // @ts-expect-error the rest of the jazz stuff should be stripped out
+            pinned.children[0]?.$type$;
+
+            pinned.$jazz.finishComputation({ wordCount: 0 });
+          }
+        });
+        return { stopListening: () => stopListening() };
+      });
+  });
+
+  test("partially resolved list items are shallow", () => {
+    co.map({ children: co.list(Child) })
+      .withComputed({ wordCount: z.number() })
+      .withResolvedDependencies({ children: true })
+      .withComputation((self) => {
+        const stopListening = self.$jazz.subscribe(async (resolved) => {
+          if (resolved.$jazz.computationState === "uncomputed") {
+            const pinned = await resolved.$jazz.startComputation();
+
+            // partially resolved items should have $jazz.id
+            pinned.children[0]?.$jazz.id;
+
+            // @ts-expect-error partially resolved items should not have their own children
+            pinned.children[0]?.text;
+
+            pinned.$jazz.finishComputation({ wordCount: 0 });
+          }
+        });
+        return { stopListening: () => stopListening() };
+      });
+  });
+
+  test("SnapshotCoValue does not strip non-CoList array types", () => {
+    const testStringArray: string[] = [];
+    const snapshot: SnapshotCoValue<string[]> = testStringArray;
+    const firstString: string | undefined = snapshot[0];
   });
 });
 

@@ -11,19 +11,6 @@ const Grandparent = co.map({
   parent: Parent,
 });
 
-type ResolvedParent = {
-  readonly child: {
-    readonly text: string;
-  } & CoMap;
-} & {
-  readonly child: MaybeLoaded<
-    {
-      readonly text: string;
-    } & CoMap
-  >;
-} & CoMap;
-type SnapshotCoValueResolvedChild = SnapshotCoValue<ResolvedParent>;
-
 describe("ComputedCoMap wordCount", () => {
   beforeEach(async () => {
     await setupJazzTestSync();
@@ -42,17 +29,5 @@ describe("ComputedCoMap wordCount", () => {
     });
 
     expect(grandparent.parent.child.text).toBe("red blue green");
-
-    const parent = Parent.create({ child: { text: "test" } });
-    const partiallyLoaded = await Parent.load(parent.$jazz.id);
-    if (partiallyLoaded.$isLoaded) {
-      const x = await partiallyLoaded.$jazz.ensureLoaded({
-        resolve: { child: true },
-      });
-
-      const grandparent2 = Grandparent.create({
-        parent: partiallyLoaded,
-      });
-    }
   });
 });

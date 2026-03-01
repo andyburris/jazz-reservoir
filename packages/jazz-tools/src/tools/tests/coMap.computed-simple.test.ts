@@ -2,12 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { co, z } from "../exports";
 import { createJazzTestAccount, setupJazzTestSync } from "../testing.js";
 
-// const Regular = co.map({ text: z.string()})
-// const regular = Regular.create({ text: "hello world" });
-// regular.$jazz.subscribe((value) => {
-//   console.log("Regular text:", value.text);
-// });
-
 const Test = co
   .map({
     text: z.string(),
