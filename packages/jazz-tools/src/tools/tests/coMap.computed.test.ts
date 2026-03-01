@@ -165,12 +165,11 @@ describe("ComputedCoMap wordCount", () => {
     });
   });
 
-  test("lastComputedValue returns the uncomputed value when computation has never completed", async () => {
+  test("lastComputedValue returns undefined when computation has never completed", async () => {
     const parent = Parent.create({ child: { text: "never computed" } });
 
     const lastComputed = parent.$jazz.lastComputedValue;
-    assertIsUncomputed(lastComputed);
-    expect(lastComputed.child.text).toBe("never computed");
+    expect(lastComputed).toBeUndefined();
   });
 
   test("lastComputedValue returns the computed value when a computation is completed", async () => {
@@ -184,13 +183,13 @@ describe("ComputedCoMap wordCount", () => {
       const unsubscribe = parent.$jazz.subscribe((value) => {
         if (!value.$isComputed && !computedOnce) {
           const lastComputed = parent.$jazz.lastComputedValue;
-          assertIsUncomputed(lastComputed);
+          expect(lastComputed).toBeUndefined();
 
           expect(parent.child.text).toBe("initial");
-          expect(lastComputed.child.text).toBe("initial");
         } else if (value.$isComputed && !computedOnce) {
           const lastComputed = parent.$jazz.lastComputedValue;
-          assertIsComputed(lastComputed);
+          assertIsDefined(lastComputed);
+          expect(lastComputed).toBe(true);
           expect(parent.child.text).toBe("initial");
           expect(lastComputed.child.text).toBe("initial");
           expect(lastComputed.wordCount).toBe(1);
@@ -199,13 +198,15 @@ describe("ComputedCoMap wordCount", () => {
           parent.child.$jazz.set("text", "second time");
         } else if (!value.$isComputed && computedOnce) {
           const lastComputed = parent.$jazz.lastComputedValue;
-          assertIsComputed(lastComputed);
+          assertIsDefined(lastComputed);
+          expect(lastComputed).toBe(true);
           expect(parent.child.text).toBe("second time");
           expect(lastComputed.child.text).toBe("initial");
           expect(lastComputed.wordCount).toBe(1);
         } else if (value.$isComputed && computedOnce) {
           const lastComputed = parent.$jazz.lastComputedValue;
-          assertIsComputed(lastComputed);
+          assertIsDefined(lastComputed);
+          expect(lastComputed).toBe(true);
           expect(parent.child.text).toBe("second time");
           expect(lastComputed.child.text).toBe("second time");
           expect(lastComputed.wordCount).toBe(2);
@@ -438,4 +439,8 @@ function assertIsUncomputed<
 >(value: V): asserts value is V & { $isComputed: false } {
   const $isComputed: boolean = value.$isComputed;
   expect($isComputed).toBe(false);
+}
+
+function assertIsDefined<T>(value: T | undefined): asserts value is T {
+  expect(value).toBeDefined();
 }

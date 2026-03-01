@@ -17,9 +17,9 @@ import {
   Resolved,
   ResolvedFromShapeAndQuery,
   Simplify,
+  SnapshotCoValue,
   SubscribeRestArgs,
   TypeSym,
-  SnapshotCoValue,
 } from "../internal";
 import { CoMap, CoMapInit_DEPRECATED, CoMapJazzApi } from "./coMap";
 
@@ -202,15 +202,17 @@ export class ComputedCoMapJazzApi<
    * "what the computation produced" for computed props.
    *
    * If a computation is currently in progress, returns the previous completed computation.
-   * If no computation has ever completed, returns the current state.
+   * If no computation has ever completed, returns undefined.
    */
-  get lastComputedValue(): SnapshotCoValue<M> {
+  get lastComputedValue():
+    | Extract<SnapshotCoValue<M>, { $isComputed: true }>
+    | undefined {
     // Find the most recent completed computation
     const lastCompletedComputation = this.getLastCompletedComputation();
 
     if (!lastCompletedComputation) {
-      // No computation has ever completed - return current state
-      return this.coMap as any;
+      // No computation has ever completed - return undefined
+      return undefined;
     }
 
     const { startedAt, finishedAt } = lastCompletedComputation;
@@ -263,7 +265,7 @@ export class ComputedCoMapJazzApi<
   private getCompositeSnapshot(
     baseTime: number,
     computedTime: number,
-  ): SnapshotCoValue<M> &
+  ): Extract<SnapshotCoValue<M>, { $isComputed: true }> &
     ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery> {
     const schema = (this.coMap.constructor as any)._computedCoMapSchema;
     if (!schema) {
