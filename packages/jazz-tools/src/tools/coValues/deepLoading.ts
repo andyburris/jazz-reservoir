@@ -2,6 +2,7 @@ import { SessionID } from "cojson";
 import { $ZodLooseShape } from "zod/v4/core";
 import { ComputedCoMapInstanceCoValuesMaybeLoaded } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema.js";
 import {
+  CoList,
   CoMapInstanceCoValuesMaybeLoaded,
   CoValueLoadingState,
   ItemsSym,
@@ -345,68 +346,40 @@ export type DeeplyLoaded<
                 ]
               ? V
               : never;
-// takes ResolvedFromShapeAndQuery and converts all CoValue instances to their static versions with the full $jazz replaced with just $jazz: { id: string }
-// export type StaticResolved<
-//   Shape extends $ZodLooseShape,
-//   ResolveQuery extends RefsToResolveForShape<Shape>,
-// > = {
-//   [Key in keyof ResolvedFromShapeAndQuery<Shape, ResolveQuery>]: ResolvedFromShapeAndQuery<Shape, ResolveQuery>[Key] extends CoValue
-//     ? {
-//         $jazz: { id: string };
-//       } & Untag<ResolvedFromShapeAndQuery<Shape, ResolveQuery>[Key], CoMap>
-//     : ResolvedFromShapeAndQuery<Shape, ResolveQuery>[Key];
-// } & { $jazz: { id: string } };
 
-type Untag<T, Tag> = T extends infer R & Tag ? R : never;
-
-export type StaticResolved<
-  Shape extends $ZodLooseShape,
-  ResolveQuery extends RefsToResolveForShape<Shape>,
-  _Resolved = ResolvedFromShapeAndQuery<Shape, ResolveQuery>,
-> = // StripCoMap<_Resolved>;
-// StripCoMap<{ [Key in keyof _Resolved]: _Resolved[Key] }>;
-StripCoMap<{
-  [Key in keyof _Resolved]: _Resolved[Key] extends CoValue
-    ? StaticResolvedValue<_Resolved[Key]>
-    : _Resolved[Key];
-}>;
-
-type StaticResolvedValue<T> = T extends CoValue
+export type SnapshotCoValue<T> = T extends CoMap
   ? StripCoMap<{
-      [Key in keyof Omit<T, keyof CoValue>]: Omit<
-        T,
-        keyof CoValue
-      >[Key] extends CoValue
-        ? StaticResolvedValue<Omit<T, keyof CoValue>[Key]>
-        : Omit<T, keyof CoValue>[Key];
+      [Key in keyof StripCoMap<T>]: SnapshotCoValue<StripCoMap<T>[Key]>;
     }>
-  : T;
+  : T extends CoList<any>
+    ? ExtractOnlyIfGuaranteed<T> extends ReadonlyArray<infer Item>
+      ? ReadonlyArray<SnapshotCoValue<Item>>
+      : never
+    : T extends CoValue
+      ? StripCoValue<T>
+      : T;
 
-// type StripCoMap<T> = Untag<T, CoMap> & { $jazz: { id: string } };
-type StripCoMap<T> = Omit<T, keyof CoValue> & { $jazz: { id: string } };
+// for CoLists, removes the CoList<MaybeLoaded<T>> side of the { /* guaranteed type */ } & CoList<MaybeLoaded<T>> union, leaving just the guaranteed type if it exists
+type ExtractOnlyIfGuaranteed<T> = T extends readonly (infer E)[]
+  ? [T[number]] extends [E]
+    ? [E] extends [T[number]]
+      ? { $jazz: { id: string } }[] // E ≡ T[number] → no narrowing happened → not guaranteed
+      : Simplify<T[number]>[] // T[number] ⊂ E → intersection narrowed → guaranteed
+    : never
+  : never;
+
+type StripCoMap<T> = Omit<T, keyof CoMap> & { $jazz: { id: string } };
+type StripCoValue<T> = Omit<T, keyof CoValue> & { $jazz: { id: string } };
 
 export type RefsToResolveForComputedShapes<
   BaseShape extends $ZodLooseShape,
   ComputedShape extends $ZodLooseShape,
-> =
-  | RefsToResolve<
-      Simplify<
-        ComputedCoMapInstanceCoValuesMaybeLoaded<BaseShape, ComputedShape>
-      >
-    >
-  | undefined;
-export type RefsToResolveForShape<Shape extends $ZodLooseShape> =
-  | RefsToResolve<Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & CoMap>
-  | undefined;
-
-// type ResolvedFromComputedShapeAndQuery<
-//   BaseShape extends $ZodLooseShape,
-//   ComputedShape extends $ZodLooseShape,
-//   ResolveQuery extends RefsToResolveForShape<BaseShape, ComputedShape>,
-// > = Resolved<
-//   Simplify<ComputedCoMapInstanceCoValuesMaybeLoaded<BaseShape, ComputedShape>> & ComputedCoMap<BaseShape, ComputedShape, ResolveQuery>,
-//   ResolveQuery
-// >;
+> = RefsToResolve<
+  Simplify<ComputedCoMapInstanceCoValuesMaybeLoaded<BaseShape, ComputedShape>>
+>;
+export type RefsToResolveForShape<Shape extends $ZodLooseShape> = RefsToResolve<
+  Simplify<CoMapInstanceCoValuesMaybeLoaded<Shape>> & CoMap
+>;
 
 export type ResolvedFromShapeAndQuery<
   Shape extends $ZodLooseShape,

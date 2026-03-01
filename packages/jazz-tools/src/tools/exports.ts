@@ -129,6 +129,7 @@ export {
   type CoreAccountSchema as AnyAccountSchema,
   type ResolveQuery,
   type ResolveQueryStrict,
+  type SnapshotCoValue,
 } from "./internal.js";
 
 export {

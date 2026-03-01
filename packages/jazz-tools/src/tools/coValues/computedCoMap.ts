@@ -1,8 +1,5 @@
 import { CoValueUniqueness, RawCoMap } from "cojson";
-import {
-  ComputedCoMapInstanceCoValuesMaybeLoaded,
-  ComputedCoMapInstanceShape,
-} from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
+import { ComputedCoMapInstanceCoValuesMaybeLoaded } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
 import { z } from "../implementation/zodSchema/zodReExport";
 import {
   Account,
@@ -20,9 +17,9 @@ import {
   Resolved,
   ResolvedFromShapeAndQuery,
   Simplify,
-  StaticResolved,
   SubscribeRestArgs,
   TypeSym,
+  SnapshotCoValue,
 } from "../internal";
 import { CoMap, CoMapInit_DEPRECATED, CoMapJazzApi } from "./coMap";
 
@@ -207,10 +204,7 @@ export class ComputedCoMapJazzApi<
    * If a computation is currently in progress, returns the previous completed computation.
    * If no computation has ever completed, returns the current state.
    */
-  get lastComputedValue(): Simplify<
-    ComputedCoMapInstanceShape<Shape, ComputedShape>
-  > &
-    ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery> {
+  get lastComputedValue(): SnapshotCoValue<M> {
     // Find the most recent completed computation
     const lastCompletedComputation = this.getLastCompletedComputation();
 
@@ -269,7 +263,7 @@ export class ComputedCoMapJazzApi<
   private getCompositeSnapshot(
     baseTime: number,
     computedTime: number,
-  ): Simplify<ComputedCoMapInstanceShape<Shape, ComputedShape>> &
+  ): SnapshotCoValue<M> &
     ComputedCoMap<Shape, ComputedShape, ResolvedDependenciesQuery> {
     const schema = (this.coMap.constructor as any)._computedCoMapSchema;
     if (!schema) {
@@ -582,9 +576,10 @@ export class ComputedCoMapJazzApi<
    * ensuring it operates on a consistent snapshot.
    */
   async startComputation(): Promise<
-    StaticResolved<Shape, ResolvedDependenciesQuery> & {
+    SnapshotCoValue<
+      ResolvedFromShapeAndQuery<Shape, ResolvedDependenciesQuery>
+    > & {
       $jazz: {
-        id: string;
         finishComputation: (init: CoMapSchemaInit<ComputedShape>) => void;
       };
     }
@@ -600,6 +595,7 @@ export class ComputedCoMapJazzApi<
     const timePinned = this.getBaseShapeAtTime(startTime - 1, resolveQuery);
 
     // Attach finishComputation onto the $jazz object
+    // @ts-expect-error
     (timePinned.$jazz as any).finishComputation = (
       init: CoMapSchemaInit<ComputedShape>,
     ) => {
@@ -644,7 +640,9 @@ export class ComputedCoMapJazzApi<
   private getBaseShapeAtTime(
     time: number,
     resolveQuery: RefsToResolveForShape<Shape>,
-  ): StaticResolved<Shape, ResolvedDependenciesQuery> {
+  ): SnapshotCoValue<
+    ResolvedFromShapeAndQuery<Shape, ResolvedDependenciesQuery>
+  > {
     const schema = (this.coMap.constructor as any)._computedCoMapSchema;
     if (!schema) {
       throw new Error("Cannot get base shape: schema not found");
@@ -687,7 +685,9 @@ export class ComputedCoMapJazzApi<
     coValue: any,
     time: number,
     resolveQuery: RefsToResolveForShape<PinnedShape>,
-  ): StaticResolved<PinnedShape, RefsToResolveForShape<PinnedShape>> {
+  ): SnapshotCoValue<
+    ResolvedFromShapeAndQuery<PinnedShape, RefsToResolveForShape<PinnedShape>>
+  > {
     if (!coValue?.$jazz?.raw) {
       return coValue;
     }
