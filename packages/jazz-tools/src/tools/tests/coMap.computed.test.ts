@@ -24,6 +24,7 @@ const Parent = co
         // );
         if (resolved.$jazz.computationState === "uncomputed") {
           const pinned = await resolved.$jazz.startComputation();
+          const unstripped = await resolved.$jazz.startComputationUnstripped();
 
           const dependenciesQuery =
             resolved.$jazz.getResolvedDependenciesQuery();

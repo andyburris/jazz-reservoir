@@ -87,6 +87,8 @@ describe("startComputation return type reflects resolved dependencies", () => {
       .withComputation((self) => {
         const stopListening = self.$jazz.subscribe(async (resolved) => {
           if (resolved.$jazz.computationState === "uncomputed") {
+            const unstripped =
+              await resolved.$jazz.startComputationUnstripped();
             const pinned = await resolved.$jazz.startComputation();
 
             // @ts-expect-error with default true query, children should only have $jazz.id, not their own children

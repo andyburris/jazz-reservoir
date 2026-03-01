@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { co, z } from "../exports";
-import { ComputedCoMapInstanceShape } from "../implementation/zodSchema/schemaTypes/ComputedCoMapSchema";
+import { CoMap, MaybeLoaded, SnapshotCoValue } from "../internal";
 import { createJazzTestAccount, setupJazzTestSync } from "../testing";
 
 const Child = co.map({ text: z.string() });
@@ -10,6 +10,19 @@ const Parent = co.map({
 const Grandparent = co.map({
   parent: Parent,
 });
+
+type ResolvedParent = {
+  readonly child: {
+    readonly text: string;
+  } & CoMap;
+} & {
+  readonly child: MaybeLoaded<
+    {
+      readonly text: string;
+    } & CoMap
+  >;
+} & CoMap;
+type SnapshotCoValueResolvedChild = SnapshotCoValue<ResolvedParent>;
 
 describe("ComputedCoMap wordCount", () => {
   beforeEach(async () => {
@@ -33,6 +46,10 @@ describe("ComputedCoMap wordCount", () => {
     const parent = Parent.create({ child: { text: "test" } });
     const partiallyLoaded = await Parent.load(parent.$jazz.id);
     if (partiallyLoaded.$isLoaded) {
+      const x = await partiallyLoaded.$jazz.ensureLoaded({
+        resolve: { child: true },
+      });
+
       const grandparent2 = Grandparent.create({
         parent: partiallyLoaded,
       });
